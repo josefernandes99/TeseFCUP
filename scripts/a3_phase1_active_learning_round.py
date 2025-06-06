@@ -19,6 +19,7 @@ import datetime
 import numpy as np
 import rasterio
 from rasterio.features import shapes
+from geo_utils import wgs_to_tile, tile_to_wgs
 import torch
 import torch.nn as nn
 from joblib import dump
@@ -62,7 +63,8 @@ def extract_features_from_label(row):
     if not tifs:
         raise FileNotFoundError(f"No .tif in {tile_folder}")
     with rasterio.open(tifs[0]) as src:
-        for vals in src.sample([(lon, lat)]):
+        x, y = wgs_to_tile(lat, lon)
+        for vals in src.sample([(x, y)]):
             return list(vals.astype(float))
     return None
 
@@ -222,8 +224,12 @@ def get_pixel_corners(src, r, c):
     tr = src.xy(r,   c+1)
     br = src.xy(r+1, c+1)
     bl = src.xy(r+1, c)
-    return [[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]], [tl[0], tl[1]]]
-
+    corners = [tl, tr, br, bl, tl]
+    out = []
+    for x, y in corners:
+        lat, lon = tile_to_wgs(x, y)
+        out.append([lon, lat])
+    return out
 
 def predict_entire_tile(tile_path, model):
     tile_name = os.path.basename(os.path.dirname(tile_path))
@@ -279,8 +285,13 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
                 mask  = (probs >= MIN_AGRI_PROB).astype("uint8")
 
                 for geom, val in shapes(mask, mask=mask, transform=src.transform):
-                    if val != 1: continue
-                    coord_str = " ".join(f"{x},{y},0" for x,y in geom["coordinates"][0])
+                    if val != 1:
+                        continue
+                    coord_list = []
+                    for x, y in geom["coordinates"][0]:
+                        lat, lon = tile_to_wgs(x, y)
+                        coord_list.append(f"{lon},{lat},0")
+                    coord_str = " ".join(coord_list)
                     f.write("    <Placemark>\n")
                     f.write("      <styleUrl>#agriStyle</styleUrl>\n")
                     f.write("      <Polygon>\n")

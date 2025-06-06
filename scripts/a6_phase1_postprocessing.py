@@ -1,4 +1,4 @@
-# scripts/a6_phase3_postprocessing.py
+# scripts/a6_phase1_postprocessing.py
 
 import os
 import glob

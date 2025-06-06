@@ -26,34 +26,17 @@ CropSegProject is an end-to-end pipeline for detecting and segmenting agricultur
 
 ```
 CropSegProject/
-├── data/
-│   ├── phase1/
-│   │   ├── raw/                # Downloaded medium-res imagery (GEE)
-│   │   ├── temp/               # Temporary files used during processing
-│   │   └── processed/          # Inference masks and processed outputs from Phase 1
-│   ├── phase2/
-│   │   ├── kml/                # KML files exported from Phase 1 (agriculture polygons)
-│   │   └── high_res/           # High-resolution (8K) images saved from Google Earth Pro
-│   └── phase3/
-│       └── output/             # Segmentation outputs (masks and overlays)
-├── labels/
-│   ├── phase1/
-│   │   └── labels.csv          # CSV file with single-pixel labels ("ag"/"non-ag")
-│   └── phase3/
-│       └── segmentation_masks/ # Pixel-level masks generated using LabelMe for segmentation
-├── scripts/
-│   ├── 0_setup_check.py
-│   ├── 1_phase1_data_download.py
-│   ├── 2_phase1_label_active.py
-│   ├── 3_phase1_train.py
-│   ├── 4_phase1_inference.py
-│   ├── 5_phase2_kml_export.py
-│   ├── 6_phase3_label_tool.py
-│   ├── 7_phase3_train_segformer.py
-│   └── 8_phase3_inference.py
-├── ready_to_run_phase1.py
-├── ready_to_run_phase2.py
-├── ready_to_run_phase3.py
+│   └── phase1/
+│       └── labels.csv
+│   ├── a0_setup_check.py
+│   ├── a1_phase1_data_download.py
+│   ├── a2_phase1_initial_labeling.py
+│   ├── a3_phase1_active_learning_round.py
+│   ├── a4_phase1_active_learning_loop.py
+│   ├── a6_phase1_postprocessing.py
+│   ├── config.py
+│   ├── ready_to_run_phase1.py
+│   └── backup (old)/              # Legacy scripts for phases 2 and 3
 ├── README.md
 └── requirements.txt
 ```
@@ -91,10 +74,7 @@ CropSegProject/
 
 ### Phase 1: Coarse Detection
 
-Run the ready-to-run script:
-```bash
-python ready_to_run_phase1.py
-```
+The helper script `ready_to_run_phase2.py` is not included in this repository. Use `scripts/backup (old)/5_phase2_kml_export.py` to export KML polygons.
 This phase performs:
 1. **Setup Check:** Verifies that Earth Engine is properly initialized.
 2. **Data Download:** Fetches multi-temporal Sentinel-2 imagery for your region (Cape Verde by default) and splits the area into tiles.
@@ -106,10 +86,7 @@ This phase performs:
 
 ### Phase 2: High-Resolution Imagery Extraction
 
-Run the ready-to-run script:
-```bash
-python ready_to_run_phase2.py
-```
+The helper script `ready_to_run_phase3.py` is not included. See the scripts in `scripts/backup (old)/` for labeling, training and inference.
 This phase performs:
 1. **KML Export:** Converts the binary ag masks from Phase 1 into geographic polygons (saved as KML files in `data/phase2/kml/`).
 2. **Manual Step:** Open these KML files in Google Earth Pro. Use the polygons to identify and save high-resolution (8K) images into `data/phase2/high_res/`.
