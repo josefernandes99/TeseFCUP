@@ -19,6 +19,8 @@ import datetime
 import numpy as np
 import rasterio
 from rasterio.features import shapes
+from shapely.geometry import shape, GeometryCollection
+from shapely.ops import unary_union
 from geo_utils import wgs_to_tile, tile_to_wgs
 import torch
 import torch.nn as nn
@@ -262,11 +264,81 @@ def save_predictions(round_folder, preds):
         w.writerows(preds)
     print(f"Predictions written to {path}")
 
+def _write_polygon(f, poly, indent="      "):
+    coord_list = []
+    for x, y in poly.exterior.coords:
+        lat, lon = tile_to_wgs(x, y)
+        coord_list.append(f"{lon},{lat},0")
+    f.write(f"{indent}<outerBoundaryIs>\n")
+    f.write(f"{indent}  <LinearRing>\n")
+    f.write(f"{indent}    <coordinates>{' '.join(coord_list)}</coordinates>\n")
+    f.write(f"{indent}  </LinearRing>\n")
+    f.write(f"{indent}</outerBoundaryIs>\n")
+    for interior in poly.interiors:
+        ilist = []
+        for x, y in interior.coords:
+            lat, lon = tile_to_wgs(x, y)
+            ilist.append(f"{lon},{lat},0")
+        f.write(f"{indent}<innerBoundaryIs>\n")
+        f.write(f"{indent}  <LinearRing>\n")
+        f.write(f"{indent}    <coordinates>{' '.join(ilist)}</coordinates>\n")
+        f.write(f"{indent}  </LinearRing>\n")
+        f.write(f"{indent}</innerBoundaryIs>\n")
+
+
+def _write_geom(f, geom, style_id):
+    if geom.is_empty:
+        return 0
+    polys = []
+    if geom.geom_type == "Polygon":
+        polys = [geom]
+    elif geom.geom_type == "MultiPolygon":
+        polys = list(geom.geoms)
+    elif geom.geom_type == "GeometryCollection":
+        for g in geom.geoms:
+            if g.geom_type == "Polygon":
+                polys.append(g)
+            elif g.geom_type == "MultiPolygon":
+                polys.extend(list(g.geoms))
+    if not polys:
+        return 0
+
+    f.write("    <Placemark>\n")
+    f.write(f"      <styleUrl>#{style_id}</styleUrl>\n")
+    if len(polys) == 1:
+        f.write("      <Polygon>\n")
+        _write_polygon(f, polys[0], "        ")
+        f.write("      </Polygon>\n")
+    else:
+        f.write("      <MultiGeometry>\n")
+        for p in polys:
+            f.write("        <Polygon>\n")
+            _write_polygon(f, p, "          ")
+            f.write("        </Polygon>\n")
+        f.write("      </MultiGeometry>\n")
+    f.write("    </Placemark>\n")
+    return len(polys)
 
 def save_agricultural_polygons_kml(round_folder, model, round_num):
     kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
-    tifs     = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
-    total_polys = 0
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    agri_geom = GeometryCollection()
+    non_agri_geom = GeometryCollection()
+
+    for tp in tifs:
+        with rasterio.open(tp) as src:
+            arr = src.read().astype(np.float32)
+            b, H, W = arr.shape
+            X = arr.reshape(b, -1).T
+            probs = model.predict_proba(X)[:, 1].reshape(H, W)
+            mask = (probs >= MIN_AGRI_PROB).astype("uint8")
+
+            for geom, val in shapes(mask, transform=src.transform):
+                poly = shape(geom)
+                if val == 1:
+                    agri_geom = agri_geom.union(poly)
+                else:
+                    non_agri_geom = non_agri_geom.union(poly)
 
     with open(kml_path, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -275,42 +347,21 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
         f.write('      <LineStyle><color>ff0000ff</color><width>1</width></LineStyle>\n')
         f.write('      <PolyStyle><color>400000ff</color><outline>1</outline></PolyStyle>\n')
         f.write('    </Style>\n')
+        f.write('    <Style id="nonAgriStyle">\n')
+        f.write('      <LineStyle><color>ff00ffff</color><width>1</width></LineStyle>\n')
+        f.write('      <PolyStyle><color>4000ff00</color><outline>1</outline></PolyStyle>\n')
+        f.write('    </Style>\n')
 
-        for tp in tifs:
-            with rasterio.open(tp) as src:
-                arr   = src.read().astype(np.float32)
-                b, H, W = arr.shape
-                X     = arr.reshape(b, -1).T
-                probs = model.predict_proba(X)[:,1].reshape(H, W)
-                mask  = (probs >= MIN_AGRI_PROB).astype("uint8")
-
-                for geom, val in shapes(mask, mask=mask, transform=src.transform):
-                    if val != 1:
-                        continue
-                    coord_list = []
-                    for x, y in geom["coordinates"][0]:
-                        lat, lon = tile_to_wgs(x, y)
-                        coord_list.append(f"{lon},{lat},0")
-                    coord_str = " ".join(coord_list)
-                    f.write("    <Placemark>\n")
-                    f.write("      <styleUrl>#agriStyle</styleUrl>\n")
-                    f.write("      <Polygon>\n")
-                    f.write("        <outerBoundaryIs>\n")
-                    f.write("          <LinearRing>\n")
-                    f.write(f"            <coordinates>{coord_str}</coordinates>\n")
-                    f.write("          </LinearRing>\n")
-                    f.write("        </outerBoundaryIs>\n")
-                    f.write("      </Polygon>\n")
-                    f.write("    </Placemark>\n")
-                    total_polys += 1
+        total_polys = 0
+        total_polys += _write_geom(f, agri_geom, "agriStyle")
+        total_polys += _write_geom(f, non_agri_geom, "nonAgriStyle")
 
         f.write("  </Document>\n</kml>\n")
 
     if total_polys == 0:
         print(f"⚠️  No polygons (all probs < {MIN_AGRI_PROB})")
     else:
-        print(f"{total_polys} agricultural polygons saved to {kml_path}")
-
+        print(f"{total_polys} polygons saved to {kml_path}")
 
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)

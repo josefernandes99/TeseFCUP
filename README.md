@@ -88,7 +88,7 @@ This phase performs:
 
 The helper script `ready_to_run_phase3.py` is not included. See the scripts in `scripts/backup (old)/` for labeling, training and inference.
 This phase performs:
-1. **KML Export:** Converts the binary ag masks from Phase 1 into geographic polygons (saved as KML files in `data/phase2/kml/`).
+1. 1. **KML Export:** Converts the binary ag masks from Phase 1 into geographic polygons (saved as KML files in `data/phase2/kml/`). The polygons are unioned with Shapely so each file contains only one agricultural and one non‑agricultural geometry.
 2. **Manual Step:** Open these KML files in Google Earth Pro. Use the polygons to identify and save high-resolution (8K) images into `data/phase2/high_res/`.
 
 ---
