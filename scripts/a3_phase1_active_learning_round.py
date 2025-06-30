@@ -2,7 +2,12 @@
 # scripts/a3_phase1_active_learning_round.py
 
 import os
+import logging
 from multiprocessing import cpu_count
+from a2_phase1_initial_labeling import extract_features_with_cache
+from temporal_features import add_temporal_features
+from memory_utils import monitor_memory_usage
+from checkpoint_utils import save_checkpoint
 
 # -----------------------------------------------------------------------------
 # 1) Speed‐ups: thread‐tune BLAS/OpenMP to use all CPU cores
@@ -27,18 +32,25 @@ import torch.nn as nn
 from joblib import dump
 from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import make_pipeline
+from sklearn.cluster import KMeans
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+import config
 from config import (
     RAW_DATA_DIR,
     ROUNDS_DIR,
     TEMP_LABELS_FILE,
     NUM_CANDIDATES_PER_ROUND,
-    CANDIDATE_PROB_LOWER,
-    CANDIDATE_PROB_UPPER,
     MIN_AGRI_PROB,
     SVM_PARAMS,
     RF_PARAMS,
@@ -46,6 +58,7 @@ from config import (
     RESNET_LR,
     BATCH_SIZE,
     INDICES,   # ["NDVI","EVI","EVI2"]
+    TIMESTAMPS,
 )
 
 
@@ -54,17 +67,19 @@ from config import (
 # -----------------------------------------------------------------------------
 def extract_features_from_label(row):
     lat, lon = float(row["lat"]), float(row["lon"])
-    tile_folder = os.path.join(RAW_DATA_DIR, row["tile"])
-    if not os.path.isdir(tile_folder):
-        cand = glob.glob(os.path.join(RAW_DATA_DIR, "*"))
+    tile_path = os.path.join(RAW_DATA_DIR, row["tile"])
+    if os.path.isdir(tile_path):
+        tifs = glob.glob(os.path.join(tile_path, "*.tif"))
+        if not tifs:
+            raise FileNotFoundError(f"No .tif in {tile_path}")
+        tile_path = tifs[0]
+    if not os.path.exists(tile_path):
+        cand = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
         if not cand:
-            raise FileNotFoundError(f"No tile folders under {RAW_DATA_DIR}")
-        tile_folder = cand[0]
-        print(f"Warning: tile '{row['tile']}' not found; using {tile_folder}")
-    tifs = glob.glob(os.path.join(tile_folder, "*.tif"))
-    if not tifs:
-        raise FileNotFoundError(f"No .tif in {tile_folder}")
-    with rasterio.open(tifs[0]) as src:
+            raise FileNotFoundError(f"No tile files under {RAW_DATA_DIR}")
+        tile_path = cand[0]
+        logging.warning(f"Tile '{row['tile']}' not found; using {tile_path}")
+    with rasterio.open(tile_path) as src:
         x, y = wgs_to_tile(lat, lon)
         for vals in src.sample([(x, y)]):
             return list(vals.astype(float))
@@ -144,6 +159,20 @@ class PytorchResNetWrapper:
     def predict(self, X):
         return self.predict_proba(X).argmax(axis=1)
 
+class EnsembleWrapper:
+    """Combine multiple model wrappers using soft voting."""
+
+    def __init__(self, models):
+        self.models = models
+
+    def predict_proba(self, X):
+        probas = [m.predict_proba(X) for m in self.models]
+        stacked = np.stack(probas, axis=0)
+        return stacked.mean(axis=0)
+
+    def predict(self, X):
+        probs = self.predict_proba(X)[:, 1]
+        return (probs >= 0.5).astype(int)
 
 def train_resnet(net, x_t, y_t):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -163,7 +192,9 @@ def train_resnet(net, x_t, y_t):
             opt.step()
             total_loss += loss.item()
         if (ep+1) % 2 == 0:
-            print(f"ResNet epoch {ep+1}/{RESNET_EPOCHS}, loss={total_loss/len(loader):.4f}")
+            logging.info(
+                f"ResNet epoch {ep + 1}/{RESNET_EPOCHS}, loss={total_loss / len(loader):.4f}"
+            )
     net.eval()
 
 
@@ -187,10 +218,13 @@ def train_model(choice, X, y):
     feat_std  = np.sqrt(feat_var)
 
     # (optional debug)
-    print("Feature statistics:")
+    logging.debug("Feature statistics:")
     for i, name in enumerate(INDICES + []):  # if you want to label features, extend with other band names
         if i < 5:  # only print first few for brevity
-            print(f"  [{i}] min={feat_min[i]:.3f}, max={feat_max[i]:.3f}, mean={feat_mean[i]:.3f}, var={feat_var[i]:.3f}")
+            logging.debug(
+                f"  [{i}] min={feat_min[i]:.3f}, max={feat_max[i]:.3f}, "
+                f"mean={feat_mean[i]:.3f}, var={feat_var[i]:.3f}"
+            )
     # you can remove or expand this as needed
 
     c = choice.lower()
@@ -214,9 +248,61 @@ def train_model(choice, X, y):
         scripted = torch.jit.script(net)
         return PytorchResNetWrapper(scripted, feat_means, feat_std)
 
+
+    elif c == "ensemble":
+        svm = train_model("svm", X, y)
+        rf = train_model("randomforest", X, y)
+        return EnsembleWrapper([svm, rf])
+
     else:
         raise ValueError(f"Unknown model choice: {choice}")
 
+def evaluate_models_cross_validation(X, y, models):
+    """Evaluate models using 5-fold CV and return best along with metrics."""
+    metrics = {}
+    for name, model in models.items():
+        f1 = cross_val_score(model, X, y, cv=5, scoring="f1")
+        prec = cross_val_score(model, X, y, cv=5, scoring="precision")
+        rec = cross_val_score(model, X, y, cv=5, scoring="recall")
+        metrics[name] = {
+            "f1": float(np.mean(f1)),
+            "precision": float(np.mean(prec)),
+            "recall": float(np.mean(rec)),
+        }
+        logging.info(
+            f"{name} CV - F1={metrics[name]['f1']:.3f}, "
+            f"P={metrics[name]['precision']:.3f}, R={metrics[name]['recall']:.3f}"
+        )
+
+    best_name, best_vals = max(metrics.items(), key=lambda kv: kv[1]["f1"])
+    return best_name, best_vals, metrics
+
+
+def diverse_uncertainty_sampling(probs, features, n_candidates=5):
+    """Select uncertain samples while ensuring feature diversity."""
+    uncertain_indices = [
+        i
+        for i, p in enumerate(probs)
+        if config.CANDIDATE_PROB_LOWER <= p <= config.CANDIDATE_PROB_UPPER
+    ]
+
+    if len(uncertain_indices) > n_candidates * 3:
+        uncertain_features = features[uncertain_indices]
+        kmeans = KMeans(n_clusters=n_candidates, n_init="auto")
+        clusters = kmeans.fit_predict(uncertain_features)
+
+        selected = []
+        for cluster_id in range(n_candidates):
+            cluster_mask = clusters == cluster_id
+            if np.any(cluster_mask):
+                cluster_indices = np.where(cluster_mask)[0]
+                # pick most uncertain from this cluster
+                subset = [uncertain_indices[idx] for idx in cluster_indices]
+                best_idx = subset[np.argmin(np.abs(probs[subset] - 0.5))]
+                selected.append(best_idx)
+        return selected
+
+    return uncertain_indices[:n_candidates]
 
 # -----------------------------------------------------------------------------
 # 4) Fast batch inference + per‐pixel geometry
@@ -234,23 +320,33 @@ def get_pixel_corners(src, r, c):
     return out
 
 def predict_entire_tile(tile_path, model):
-    tile_name = os.path.basename(os.path.dirname(tile_path))
+    """Return per-pixel predictions and their feature vectors."""
+    tile_name = os.path.basename(tile_path)
     with rasterio.open(tile_path) as src:
         arr   = src.read().astype(np.float32)       # (bands, H, W)
         b, H, W = arr.shape
-        X     = arr.reshape(b, -1).T                # (H*W, bands)
+        periods = len(TIMESTAMPS)
+        extra = 3  # elevation, slope, aspect
+        bands_per_period = (b - extra) // periods
+        stack = arr[: periods * bands_per_period].reshape(periods, bands_per_period, H, W)
+        temp_feats = add_temporal_features(stack).reshape(-1, H * W)
+        base_feats = arr.reshape(b, -1)
+        X = np.concatenate([base_feats, temp_feats], axis=0).T
         probs = model.predict_proba(X)[:, 1]        # bulk proba
         rows  = np.repeat(np.arange(H), W)
         cols  = np.tile(  np.arange(W), H)
 
         results = []
+        features = []
         for idx, (r, c) in enumerate(zip(rows, cols)):
             p = float(probs[idx])
             corners = get_pixel_corners(src, r, c)
             mean_lat = sum(y for x,y in corners) / len(corners)
             mean_lon = sum(x for x,y in corners) / len(corners)
             results.append([tile_name, r, c, mean_lat, mean_lon, p])
-    return results
+            features.append(X[idx])
+    monitor_memory_usage()
+    return results, np.array(features)
 
 
 # -----------------------------------------------------------------------------
@@ -260,9 +356,16 @@ def save_predictions(round_folder, preds):
     path = os.path.join(round_folder, "predictions.csv")
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob"])
+        w.writerow([
+            "tile",
+            "row_idx",
+            "col_idx",
+            "center_lat",
+            "center_lon",
+            "predicted_prob",
+        ])
         w.writerows(preds)
-    print(f"Predictions written to {path}")
+    logging.info(f"Predictions written to {path}")
 
 def _write_polygon(f, poly, indent="      "):
     coord_list = []
@@ -321,7 +424,7 @@ def _write_geom(f, geom, style_id):
 
 def save_agricultural_polygons_kml(round_folder, model, round_num):
     kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     agri_geom = GeometryCollection()
     non_agri_geom = GeometryCollection()
 
@@ -359,21 +462,38 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
         f.write("  </Document>\n</kml>\n")
 
     if total_polys == 0:
-        print(f"⚠️  No polygons (all probs < {MIN_AGRI_PROB})")
+        logging.warning(
+            f"No polygons saved (all probs < {MIN_AGRI_PROB})"
+        )
     else:
-        print(f"{total_polys} polygons saved to {kml_path}")
+        logging.info(f"{total_polys} polygons saved to {kml_path}")
 
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)
 # -----------------------------------------------------------------------------
 def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
-    tile_dir = os.path.join(RAW_DATA_DIR, tile_name)
-    tifs     = glob.glob(os.path.join(tile_dir, "*.tif"))
-    if not tifs:
-        print(f"WARNING: missing tile {tile_name}; skipping candidate KML.")
+    """Generate a KML polygon for a 3x3 patch centered at the given pixel."""
+    tile_path = os.path.join(RAW_DATA_DIR, tile_name)
+    if os.path.isdir(tile_path):
+        tifs = glob.glob(os.path.join(tile_path, "*.tif"))
+        if not tifs:
+            logging.warning(f"Missing tile {tile_name}; skipping candidate KML.")
+            return
+        tile_path = tifs[0]
+    if not os.path.exists(tile_path):
+        logging.warning(f"Missing tile {tile_name}; skipping candidate KML.")
         return
-    with rasterio.open(tifs[0]) as src:
-        corners = get_pixel_corners(src, row_idx, col_idx)
+    with rasterio.open(tile_path) as src:
+        r0 = max(row_idx - 1, 0)
+        c0 = max(col_idx - 1, 0)
+        r1 = min(row_idx + 2, src.height)
+        c1 = min(col_idx + 2, src.width)
+        ul = src.xy(r0, c0)
+        ur = src.xy(r0, c1)
+        lr = src.xy(r1, c1)
+        ll = src.xy(r1, c0)
+        corners = [ul, ur, lr, ll, ul]
+        corners = [(tile_to_wgs(x, y)[1], tile_to_wgs(x, y)[0]) for x, y in corners]
 
     kml = Element('kml', xmlns="http://www.opengis.net/kml/2.2")
     doc = SubElement(kml, 'Document')
@@ -394,62 +514,119 @@ def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
     pretty = parseString(rough).toprettyxml(indent="  ", encoding="utf-8")
     with open(outpath, "wb") as f:
         f.write(pretty)
-    print(f"Candidate KML => {outpath}")
-
+    logging.info(f"Candidate KML => {outpath}")
 
 # -----------------------------------------------------------------------------
 # 7) Active‐Learning orchestration (unchanged aside from new train_model)
 # -----------------------------------------------------------------------------
 def active_learning_round(round_num, labels_file, model_choice):
-    print(f"\n=== Starting Active Learning Round {round_num} ===")
+    logging.info(f"\n=== Starting Active Learning Round {round_num} ===")
     rnd_dir = os.path.join(ROUNDS_DIR, f"round_{round_num}")
     os.makedirs(rnd_dir, exist_ok=True)
 
     # load & featurize
     rows = list(csv.DictReader(open(labels_file)))
     if len(rows) <= 1:
-        print("Not enough labels; aborting.")
+        logging.warning("Not enough labels; aborting.")
         return None
     X, y = [], []
     for r in rows:
-        feats = extract_features_from_label(r)
+        tile_path = os.path.join(RAW_DATA_DIR, r["tile"])
+        if os.path.isdir(tile_path):
+            tifs = glob.glob(os.path.join(tile_path, "*.tif"))
+            if not tifs:
+                logging.warning(f"No .tif in {tile_path}; skipping label {r['id']}")
+                continue
+            tile_path = tifs[0]
+        if not os.path.exists(tile_path):
+            logging.warning(f"No .tif in {tile_path}; skipping label {r['id']}")
+            continue
+        feats = extract_features_with_cache(tile_path, float(r["lat"]), float(r["lon"]))
         if feats is not None:
             X.append(feats)
             y.append(1 if r["label"].lower()=="agricultural" else 0)
+        monitor_memory_usage()
     X, y = np.array(X, dtype=np.float32), np.array(y, dtype=np.int64)
 
+    tuned_hp = config.auto_tune_model_hyperparameters(X, y)
+    config.SVM_PARAMS.update(tuned_hp["SVM_PARAMS"])
+    config.RF_PARAMS.update(tuned_hp["RF_PARAMS"])
+    logging.info(
+        f"Hyperparameters tuned => SVM {config.SVM_PARAMS}, RF {config.RF_PARAMS}"
+    )
+
+    models_dict = {
+        "SVM": make_pipeline(StandardScaler(), SVC(probability=True, gamma="auto", **SVM_PARAMS)),
+        "RandomForest": RandomForestClassifier(n_jobs=-1, **RF_PARAMS),
+    }
+    models_dict["Ensemble"] = VotingClassifier(
+        estimators=[
+            ("svm", make_pipeline(StandardScaler(), SVC(probability=True, gamma="auto", **SVM_PARAMS))),
+            ("rf", RandomForestClassifier(n_jobs=-1, **RF_PARAMS)),
+        ],
+        voting="soft",
+    )
+    best_name, best_vals, all_metrics = evaluate_models_cross_validation(X, y, models_dict)
+    if best_name:
+        model_choice = best_name
+        logging.info(f"Selected {model_choice} via CV with F1={best_vals['f1']:.3f}")
+        metrics_path = os.path.join(rnd_dir, "cv_metrics.csv")
+        with open(metrics_path, "w", newline="") as mf:
+            writer = csv.writer(mf)
+            writer.writerow(["model", "f1", "precision", "recall"])
+            for m, vals in all_metrics.items():
+                writer.writerow([m, vals["f1"], vals["precision"], vals["recall"]])
+        logging.info(f"CV metrics written to {metrics_path}")
+
     # train & save
-    print(f"Training data shape: {X.shape}, model: {model_choice}")
+    logging.info(f"Training data shape: {X.shape}, model: {model_choice}")
     model = train_model(model_choice, X, y)
     mp = os.path.join(rnd_dir, f"model_round_{round_num}.pkl")
     dump(model, mp)
-    print(f"Model saved to {mp}")
+    logging.info(f"Model saved to {mp}")
 
     # inference + timing
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     preds = []
+    feats = []
     start = time.time()
     with Progress("[bold cyan]{task.description}", BarColumn(), TaskProgressColumn(),
                   TimeElapsedColumn(), TimeRemainingColumn()) as prog:
         task = prog.add_task("Running inference", total=len(tifs))
         for tp in tifs:
-            preds.extend(predict_entire_tile(tp, model))
+            p, f = predict_entire_tile(tp, model)
+            preds.extend(p)
+            feats.append(f)
+            monitor_memory_usage()
             prog.update(task, advance=1)
-    print(f"Total pixels inferred: {len(preds)}")
-    print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time()-start)))}")
+    feats = np.concatenate(feats, axis=0) if feats else np.empty((0, X.shape[1]))
+    logging.info(f"Total pixels inferred: {len(preds)}")
+    logging.info(
+        f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}"
+    )
+
+    # auto-tune config parameters based on predictions
+    tuned = config.auto_tune_parameters(preds)
+    config.SIEVE_MIN_SIZE = tuned["SIEVE_MIN_SIZE"]
+    config.CANDIDATE_PROB_LOWER = tuned["CANDIDATE_PROB_LOWER"]
+    config.CANDIDATE_PROB_UPPER = tuned["CANDIDATE_PROB_UPPER"]
+    logging.info(
+        f"Auto-tuned: sieve={config.SIEVE_MIN_SIZE}, "
+        f"lower={config.CANDIDATE_PROB_LOWER:.3f}, upper={config.CANDIDATE_PROB_UPPER:.3f}"
+    )
 
     # outputs
     save_predictions(rnd_dir, preds)
     save_agricultural_polygons_kml(rnd_dir, model, round_num)
 
     # candidate selection
-    unc = [p for p in preds if CANDIDATE_PROB_LOWER <= p[5] <= CANDIDATE_PROB_UPPER]
-    if len(unc) < NUM_CANDIDATES_PER_ROUND:
-        preds.sort(key=lambda r: abs(r[5]-0.5))
-        cands = preds[:NUM_CANDIDATES_PER_ROUND]
-    else:
-        cands = unc[:NUM_CANDIDATES_PER_ROUND]
-    print(f"{len(cands)} candidate patches selected")
+    probs_arr = np.array([p[5] for p in preds], dtype=float)
+    feats_arr = feats
+    cand_idx = diverse_uncertainty_sampling(
+        probs_arr, feats_arr, n_candidates=NUM_CANDIDATES_PER_ROUND
+    )
+    cands = [preds[i] for i in cand_idx]
+    logging.info(f"{len(cands)} candidate patches selected")
 
     tmp = os.path.join(rnd_dir, "temp_labels.csv")
     with open(tmp, "w", newline="") as f:
@@ -462,20 +639,20 @@ def active_learning_round(round_num, labels_file, model_choice):
             os.makedirs(sub, exist_ok=True)
         kmlp = os.path.join(sub, "candidate_patch.kml")
         generate_candidate_kml(t, r, c, kmlp)
-        print(f"Candidate: {t} r={r},c={c}, p={p:.3f}")
+        logging.info(f"Candidate: {t} r={r},c={c}, p={p:.3f}")
         ui = input("Label? (1=Agri,2=NonAgri,3=Skip): ").strip()
         if ui=="3":
-            print("Skipped.")
+            logging.info("Skipped.")
             continue
-        lab = "Agricultural" if ui=="1" else "Non-Agricultural" if ui=="2" else None
+        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if lab:
-            eid = f"AL_{round_num}_{int(random.random()*1e6)}"
+            eid = f"AL_{round_num}_{int(random.random() * 1e6)}"
             with open(tmp, "a", newline="") as f2:
                 csv.writer(f2).writerow([eid, t, la, lo, lab])
-            print("Label saved.")
-    print(f"Round {round_num} complete; labels at {tmp}")
+            logging.info("Label saved.")
+    save_checkpoint(round_num, model, len(X))
+    logging.info(f"Round {round_num} complete; labels at {tmp}")
     return tmp
-
 
 if __name__ == "__main__":
     active_learning_round(1, TEMP_LABELS_FILE, "SVM")
