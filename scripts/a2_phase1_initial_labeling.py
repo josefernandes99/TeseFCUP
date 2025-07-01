@@ -7,25 +7,13 @@ import os
 import random
 from xml.dom import minidom
 from xml.etree.ElementTree import Element, SubElement, tostring
-
-import numpy as np
 import rasterio
-from rasterio.windows import Window
 
 from config import (
     LABELS_FILE, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML,
-    TEMP_LABELS_FILE, ROUNDS_DIR,
-    NUM_RANDOM_PICKS_PER_TILE,
-    CANDIDATE_PROB_LOWER, CANDIDATE_PROB_UPPER,
-    NUM_CANDIDATES_PER_ROUND
+    TEMP_LABELS_FILE
 )
-
-# Path to your normalizers.csv produced in a1_phase1_data_download.py
-NORMALIZERS_CSV = os.path.join(os.path.dirname(os.path.dirname(__file__)), "normalizers.csv")
-# Where we'll write the hybrid-candidates list
-CANDIDATES_CSV  = os.path.join(os.path.dirname(LABELS_FILE), "candidate_labels.csv")
-
 
 def ensure_labels_file():
     os.makedirs(os.path.dirname(LABELS_FILE), exist_ok=True)
@@ -182,170 +170,10 @@ def global_sampling_labeling(num_patches):
         added += 1
     return added
 
-
-# ——————— RICH FEATURE ENGINEERING (for a3 later) ———————
-
-def load_normalizers(path=NORMALIZERS_CSV):
-    stats = {}
-    with open(path) as f:
-        rd = csv.DictReader(f)
-        for r in rd:
-            stats[r["feature"]] = {"mean":float(r["mean"]), "std":float(r["stdDev"]) or 1.0}
-    return stats
-
-def compute_extra_indices(b2,b3,b4,b8,b11):
-    eps=1e-6
-    ndvi  = (b8 - b4)/(b8 + b4 + eps)
-    evi   = 2.5*((b8 - b4)/(b8 + 6*b4 -7.5*b2 +1 + eps))
-    evi2  = 2.5*((b8 - b4)/(b8 + 2.4*b4 +1 + eps))
-    ndwi  = (b3 - b8)/(b3 + b8 + eps)
-    nbr_s = (b8 - b11)/(b8 + b11 + eps)
-    return ndvi,evi,evi2,ndwi,nbr_s
-
-def zscore_vector(feats, normals):
-    out=[]
-    for f,val in feats.items():
-        m=normals[f]["mean"]; s=normals[f]["std"]
-        out.append((val - m)/s)
-    return np.array(out, dtype=np.float32)
-
-def extract_features_from_label(row):
-    """3×3 window flatten + z-scored extras on center pixel."""
-    normals = load_normalizers()
-    lat, lon = float(row["lat"]), float(row["lon"])
-    tif_path = os.path.join(RAW_DATA_DIR, row["tile"])
-    if not os.path.exists(tif_path):
-        raise FileNotFoundError(f"Tile file not found: {tif_path}")
-    with rasterio.open(tif_path) as src:
-        col_c,row_c = src.index(lon,lat)
-        col0 = max(col_c-1,0); row0 = max(row_c-1,0)
-        if col0+3>src.width:  col0=src.width-3
-        if row0+3>src.height: row0=src.height-3
-        win = Window(col0,row0,3,3)
-        patch = src.read(window=win).astype(float)  # (bands,3,3)
-        flat  = patch.reshape(-1).tolist()          # 5*9
-        b2,b3,b4,b8,b11 = patch[:,1,1]
-        ndvi,evi,evi2,ndwi,nbr_s = compute_extra_indices(b2,b3,b4,b8,b11)
-        extras = {"NDVI":ndvi,"EVI":evi,"EVI2":evi2,"NDWI":ndwi,"NBR_s":nbr_s}
-        zs = zscore_vector(extras, normals).tolist()
-        return flat + zs
-
-
-# ——————— HYBRID CANDIDATE SAMPLING ———————
-
-def sample_random_candidates():
-    pts=[]
-    for tif in glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")):
-        tile = os.path.basename(tif)
-        with rasterio.open(tif) as src:
-            H,W = src.height, src.width
-            total = H*W
-            picks = random.sample(range(total), min(NUM_RANDOM_PICKS_PER_TILE, total))
-            for idx in picks:
-                r,c = divmod(idx, W)
-                lon,lat = src.xy(r,c)
-                pts.append((tile,lat,lon))
-    return pts
-
-def sample_margin_candidates():
-    rnds = glob.glob(os.path.join(ROUNDS_DIR,"round_*"))
-    if not rnds:
-        return []
-    rnd = sorted(rnds, key=lambda p:int(p.split("_")[-1]))[-1]
-    pcsv = os.path.join(rnd,"predictions.csv")
-    if not os.path.exists(pcsv):
-        return []
-    unc=[]
-    with open(pcsv) as f:
-        for r in csv.DictReader(f):
-            p=float(r["predicted_prob"])
-            if CANDIDATE_PROB_LOWER <= p <= CANDIDATE_PROB_UPPER:
-                unc.append(r)
-    chosen = random.sample(unc, min(len(unc), NUM_CANDIDATES_PER_ROUND))
-    return [(r["tile"], float(r["center_lat"]), float(r["center_lon"])) for r in chosen]
-
-def generate_candidate_list():
-    normals = load_normalizers()
-    seen = set()
-    rows = []
-
-    # random
-    for tile,lat,lon in sample_random_candidates():
-        key = (tile, round(lat,6), round(lon,6))
-        if key in seen: continue
-        seen.add(key)
-        rows.append((f"rand_{len(rows)}", tile, lat, lon))
-
-    # margin
-    for tile,lat,lon in sample_margin_candidates():
-        key = (tile, round(lat,6), round(lon,6))
-        if key in seen: continue
-        seen.add(key)
-        rows.append((f"marg_{len(rows)}", tile, lat, lon))
-
-    os.makedirs(os.path.dirname(CANDIDATES_CSV), exist_ok=True)
-    with open(CANDIDATES_CSV,"w",newline="") as f:
-        w=csv.writer(f)
-        w.writerow(["id","tile","lat","lon","label"])
-        wpx,hpx = get_patch_dimensions()
-        for cid,t,la,lo in rows:
-            w.writerow([cid,t,la,lo,""])
-            # write per-candidate KML
-            kmlp = CANDIDATES_CSV.replace(".csv", f"_{cid}.kml")
-            generate_kml_for_patch(la, lo, wpx, hpx, out_path=kmlp)
-    print(f"Generated {len(rows)} candidates → {CANDIDATES_CSV}")
-
-
-# ——————— LABELING FROM CANDIDATES CSV ———————
-
-def label_from_candidates(num_labels):
-    if not os.path.exists(CANDIDATES_CSV):
-        print("No candidates CSV; run sampling first.")
-        return 0
-
-    rows = list(csv.DictReader(open(CANDIDATES_CSV)))
-    labeled = 0
-    for row in rows:
-        if row["label"].strip() != "":
-            continue
-        if labeled >= num_labels:
-            break
-
-        cid, tile, lat, lon = row["id"], row["tile"], float(row["lat"]), float(row["lon"])
-        kmlp = CANDIDATES_CSV.replace(".csv", f"_{cid}.kml")
-        print(f"Open {kmlp} to view patch.")
-        ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
-        if ui == "3":
-            continue
-        lab = "Agricultural" if ui=="1" else "Non-Agricultural" if ui=="2" else None
-        if not lab:
-            print("Invalid choice; skipping.")
-            continue
-
-        # append to master
-        with open(LABELS_FILE, "a", newline="") as lf:
-            csv.writer(lf).writerow([cid, lat, lon, tile, lab])
-        row["label"] = lab
-        labeled += 1
-        print(f"Labeled {cid} → {lab}")
-
-    # rewrite back updated candidates
-    with open(CANDIDATES_CSV,"w",newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["id","tile","lat","lon","label"])
-        w.writeheader()
-        w.writerows(rows)
-
-    return labeled
-
-
 # ——————— INITIAL LABELING LOOP ———————
 
 def initial_labeling():
     ensure_labels_file()
-
-    print("\n=== Generating hybrid random+margin candidates ===")
-    generate_candidate_list()
-    print("Review the KMLs and candidate_labels.csv before labeling.\n")
 
     while True:
         ok, agri_cnt, ratio = check_label_requirements()
@@ -375,13 +203,11 @@ def initial_labeling():
             except:
                 n = 5
 
-        print("Choose labeling: [1] Manual, [2] From candidates, [3] Global random")
+        print("Choose labeling: [1] Manual, [2] Global random")
         m = input("=> ").strip()
         if m == "1":
             added = manual_labeling(n)
         elif m == "2":
-            added = label_from_candidates(n)
-        elif m == "3":
             added = global_sampling_labeling(n)
         else:
             print("Invalid; skipping.")
