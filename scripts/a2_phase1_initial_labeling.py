@@ -67,7 +67,7 @@ def get_tile_for_coordinate(_lat, _lon):
 
 
 def get_patch_dimensions():
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     if not tifs:
         return 0.001, 0.001
     with rasterio.open(tifs[0]) as src:
@@ -153,7 +153,7 @@ def global_sampling_labeling(num_patches):
     if ROI_COORDS:
         roi = ROI_COORDS
     else:
-        tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+        tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
         if tifs:
             with rasterio.open(tifs[0]) as src:
                 b = src.bounds
@@ -237,7 +237,7 @@ def extract_features_from_label(row):
 
 def sample_random_candidates():
     pts=[]
-    for tif in glob.glob(os.path.join(RAW_DATA_DIR,"*","*.tif")):
+    for tif in glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")):
         tile = os.path.basename(os.path.dirname(tif))
         with rasterio.open(tif) as src:
             H,W = src.height, src.width

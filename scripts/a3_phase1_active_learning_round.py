@@ -259,7 +259,7 @@ def save_predictions(round_folder, preds):
 
 def save_agricultural_polygons_kml(round_folder, model, round_num):
     kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
-    tifs     = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    tifs     = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     total_polys = 0
 
     with open(kml_path, "w", encoding="utf-8") as f:
@@ -364,7 +364,7 @@ def active_learning_round(round_num, labels_file, model_choice):
     print(f"Model saved to {mp}")
 
     # inference + timing
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     preds = []
     start = time.time()
     with Progress("[bold cyan]{task.description}", BarColumn(), TaskProgressColumn(),

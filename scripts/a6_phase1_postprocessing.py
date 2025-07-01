@@ -76,7 +76,7 @@ def postprocessing():
     if mp is None:
         return
     model = load(mp)
-    tile_files = glob.glob(os.path.join(RAW_DATA_DIR, "*", "*.tif"))
+    tile_files = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     if not tile_files:
         print("No tiles found in raw data directory.")
         return
