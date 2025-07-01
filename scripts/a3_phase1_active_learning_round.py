@@ -15,6 +15,7 @@ import glob
 import random
 import time
 import datetime
+from pyproj import Transformer
 
 import numpy as np
 import rasterio
@@ -206,12 +207,16 @@ def train_model(choice, X, y):
 # 4) Fast batch inference + per‐pixel geometry
 # -----------------------------------------------------------------------------
 def get_pixel_corners(src, r, c):
+    """Return corner coordinates for a pixel as (lon, lat) pairs in WGS84."""
     tl = src.xy(r,   c)
     tr = src.xy(r,   c+1)
     br = src.xy(r+1, c+1)
     bl = src.xy(r+1, c)
-    return [[tl[0], tl[1]], [tr[0], tr[1]], [br[0], br[1]], [bl[0], bl[1]], [tl[0], tl[1]]]
-
+    corners = [tl, tr, br, bl, tl]
+    if src.crs and not src.crs.is_geographic:
+        transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+        corners = [transformer.transform(x, y) for x, y in corners]
+    return [[lon, lat] for lon, lat in corners]
 
 def predict_entire_tile(tile_path, model):
     tile_name = os.path.basename(tile_path)
@@ -265,10 +270,17 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
                 X     = arr.reshape(b, -1).T
                 probs = model.predict_proba(X)[:,1].reshape(H, W)
                 mask  = (probs >= MIN_AGRI_PROB).astype("uint8")
+                transformer = None
+                if src.crs and not src.crs.is_geographic:
+                    transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
 
                 for geom, val in shapes(mask, mask=mask, transform=src.transform):
                     if val != 1: continue
-                    coord_str = " ".join(f"{x},{y},0" for x,y in geom["coordinates"][0])
+                    coords = geom["coordinates"][0]
+                    coords = geom["coordinates"][0]
+                    if transformer:
+                        coords = [transformer.transform(x, y) for x, y in coords]
+                    coord_str = " ".join(f"{lon},{lat},0" for lon, lat in coords)
                     f.write("    <Placemark>\n")
                     f.write("      <styleUrl>#agriStyle</styleUrl>\n")
                     f.write("      <Polygon>\n")
