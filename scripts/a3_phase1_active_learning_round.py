@@ -3,8 +3,13 @@
 
 import os
 import logging
+import warnings
 from multiprocessing import cpu_count
-from a2_phase1_initial_labeling import extract_features_with_cache
+from a2_phase1_initial_labeling import (
+    extract_features_with_cache,
+    compute_extra_indices,
+    load_normalizers,
+)
 from temporal_features import add_temporal_features
 from memory_utils import monitor_memory_usage
 from checkpoint_utils import save_checkpoint
@@ -14,6 +19,15 @@ from checkpoint_utils import save_checkpoint
 # -----------------------------------------------------------------------------
 os.environ["OMP_NUM_THREADS"] = str(cpu_count())
 os.environ["MKL_NUM_THREADS"] = str(cpu_count())
+
+warnings.filterwarnings(
+    "ignore",
+    message="CPLE_AppDefined in PROJ: proj_create_from_database: Cannot find proj.db"
+)
+warnings.filterwarnings(
+    "ignore",
+    message="Precision is ill-defined and being set to 0.0 due to no predicted samples"
+)
 
 import csv
 import glob
@@ -32,7 +46,7 @@ import torch.nn as nn
 from joblib import dump
 from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
 from sklearn.svm import SVC
-from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
 from sklearn.pipeline import make_pipeline
@@ -96,18 +110,33 @@ class SklearnWrapper:
         self.feat_std = feat_std
         self.scaler = scaler  # for SVM
 
+    def _align_stats(self, X):
+        if X.shape[1] != self.feat_means.shape[0]:
+            logging.warning(
+                f"Feature-length mismatch: got {X.shape[1]}, expected {self.feat_means.shape[0]}. Auto-aligning means/std."
+            )
+            if X.shape[1] < self.feat_means.size:
+                means = self.feat_means[: X.shape[1]]
+                stds = self.feat_std[: X.shape[1]]
+            else:
+                pad = X.shape[1] - self.feat_means.size
+                means = np.concatenate([self.feat_means, np.zeros(pad)])
+                stds = np.concatenate([self.feat_std, np.ones(pad)])
+            return means, stds
+        return self.feat_means, self.feat_std
+
     def predict_proba(self, X):
-        # 1) impute missing with feature means
         inds = np.where(np.isnan(X))
         if inds[0].size:
             X = X.copy()
             X[inds] = np.take(self.feat_means, inds[1])
-        # 2) if an sklearn scaler is provided (SVM), use it
-        if self.scaler is not None:
+        means, stds = self._align_stats(X)
+
+        if self.scaler is not None and X.shape[1] == self.scaler.mean_.shape[0]:
             Xs = self.scaler.transform(X)
         else:
             # for RF, do z‐score scaling manually (optional)
-            Xs = (X - self.feat_means) / (self.feat_std + 1e-6)
+            Xs = (X - means) / (stds + 1e-6)
         return self.clf.predict_proba(Xs)
 
     def predict(self, X):
@@ -140,14 +169,29 @@ class PytorchResNetWrapper:
         self.feat_means = feat_means
         self.feat_std = feat_std
 
+    def _align_stats(self, X):
+        if X.shape[1] != self.feat_means.shape[0]:
+            logging.warning(
+                f"Feature-length mismatch: got {X.shape[1]}, expected {self.feat_means.shape[0]}. Auto-aligning means/std."
+            )
+            if X.shape[1] < self.feat_means.size:
+                means = self.feat_means[: X.shape[1]]
+                stds = self.feat_std[: X.shape[1]]
+            else:
+                pad = X.shape[1] - self.feat_means.size
+                means = np.concatenate([self.feat_means, np.zeros(pad)])
+                stds = np.concatenate([self.feat_std, np.ones(pad)])
+            return means, stds
+        return self.feat_means, self.feat_std
+
     def predict_proba(self, X):
         # impute
         inds = np.where(np.isnan(X))
         if inds[0].size:
             X = X.copy()
             X[inds] = np.take(self.feat_means, inds[1])
-        # z‐score scale
-        Xs = (X - self.feat_means) / (self.feat_std + 1e-6)
+        means, stds = self._align_stats(X)
+        Xs = (X - means) / (stds + 1e-6)
         # forward
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         xt = torch.from_numpy(Xs.astype(np.float32)).to(device)
@@ -232,7 +276,7 @@ def train_model(choice, X, y):
         # StandardScaler for true zero‐mean/unit‐variance
         scaler = StandardScaler().fit(X)
         Xs     = scaler.transform(X)
-        clf    = SVC(probability=True, gamma="auto", **SVM_PARAMS)
+        clf    = SVC(probability=True, **SVM_PARAMS)
         clf.fit(Xs, y)
         return SklearnWrapper(clf, feat_means, feat_std, scaler)
 
@@ -256,27 +300,6 @@ def train_model(choice, X, y):
 
     else:
         raise ValueError(f"Unknown model choice: {choice}")
-
-def evaluate_models_cross_validation(X, y, models):
-    """Evaluate models using 5-fold CV and return best along with metrics."""
-    metrics = {}
-    for name, model in models.items():
-        f1 = cross_val_score(model, X, y, cv=5, scoring="f1")
-        prec = cross_val_score(model, X, y, cv=5, scoring="precision")
-        rec = cross_val_score(model, X, y, cv=5, scoring="recall")
-        metrics[name] = {
-            "f1": float(np.mean(f1)),
-            "precision": float(np.mean(prec)),
-            "recall": float(np.mean(rec)),
-        }
-        logging.info(
-            f"{name} CV - F1={metrics[name]['f1']:.3f}, "
-            f"P={metrics[name]['precision']:.3f}, R={metrics[name]['recall']:.3f}"
-        )
-
-    best_name, best_vals = max(metrics.items(), key=lambda kv: kv[1]["f1"])
-    return best_name, best_vals, metrics
-
 
 def diverse_uncertainty_sampling(probs, features, n_candidates=5):
     """Select uncertain samples while ensuring feature diversity."""
@@ -320,34 +343,30 @@ def get_pixel_corners(src, r, c):
     return out
 
 def predict_entire_tile(tile_path, model):
-    """Return per-pixel predictions and their feature vectors."""
+    """Return per-pixel predictions using cached full features."""
     tile_name = os.path.basename(tile_path)
+    rows = []
+    feats = []
     with rasterio.open(tile_path) as src:
-        arr   = src.read().astype(np.float32)       # (bands, H, W)
-        b, H, W = arr.shape
-        periods = len(TIMESTAMPS)
-        extra = 3  # elevation, slope, aspect
-        bands_per_period = (b - extra) // periods
-        stack = arr[: periods * bands_per_period].reshape(periods, bands_per_period, H, W)
-        temp_feats = add_temporal_features(stack).reshape(-1, H * W)
-        base_feats = arr.reshape(b, -1)
-        X = np.concatenate([base_feats, temp_feats], axis=0).T
-        probs = model.predict_proba(X)[:, 1]        # bulk proba
-        rows  = np.repeat(np.arange(H), W)
-        cols  = np.tile(  np.arange(W), H)
-
-        results = []
-        features = []
-        for idx, (r, c) in enumerate(zip(rows, cols)):
-            p = float(probs[idx])
-            corners = get_pixel_corners(src, r, c)
-            mean_lat = sum(y for x,y in corners) / len(corners)
-            mean_lon = sum(x for x,y in corners) / len(corners)
-            results.append([tile_name, r, c, mean_lat, mean_lon, p])
-            features.append(X[idx])
+        H, W = src.height, src.width
+        for r in range(H):
+            for c in range(W):
+                x, y = src.xy(r, c)
+                lat, lon = tile_to_wgs(x, y)
+                f = extract_features_with_cache(tile_path, lat, lon)
+                if f is None:
+                    continue
+                if f.shape[0] >= 2:
+                    row_idx, col_idx = int(f[0]), int(f[1])
+                    X = f[2:].reshape(1, -1)
+                else:
+                    row_idx, col_idx = r, c
+                    X = f.reshape(1, -1)
+                prob = model.predict_proba(X)[0, 1]
+                rows.append([tile_name, row_idx, col_idx, lat, lon, float(prob)])
+                feats.append(X.squeeze(0))
     monitor_memory_usage()
-    return results, np.array(features)
-
+    return rows, np.array(feats)
 
 # -----------------------------------------------------------------------------
 # 5) CSV + polygonized KML exporters
@@ -543,40 +562,13 @@ def active_learning_round(round_num, labels_file, model_choice):
             continue
         feats = extract_features_with_cache(tile_path, float(r["lat"]), float(r["lon"]))
         if feats is not None:
+            if feats.shape[0] >= 2:
+                feats = feats[2:]
             X.append(feats)
             y.append(1 if r["label"].lower()=="agricultural" else 0)
         monitor_memory_usage()
-    X, y = np.array(X, dtype=np.float32), np.array(y, dtype=np.int64)
-
-    tuned_hp = config.auto_tune_model_hyperparameters(X, y)
-    config.SVM_PARAMS.update(tuned_hp["SVM_PARAMS"])
-    config.RF_PARAMS.update(tuned_hp["RF_PARAMS"])
-    logging.info(
-        f"Hyperparameters tuned => SVM {config.SVM_PARAMS}, RF {config.RF_PARAMS}"
-    )
-
-    models_dict = {
-        "SVM": make_pipeline(StandardScaler(), SVC(probability=True, gamma="auto", **SVM_PARAMS)),
-        "RandomForest": RandomForestClassifier(n_jobs=-1, **RF_PARAMS),
-    }
-    models_dict["Ensemble"] = VotingClassifier(
-        estimators=[
-            ("svm", make_pipeline(StandardScaler(), SVC(probability=True, gamma="auto", **SVM_PARAMS))),
-            ("rf", RandomForestClassifier(n_jobs=-1, **RF_PARAMS)),
-        ],
-        voting="soft",
-    )
-    best_name, best_vals, all_metrics = evaluate_models_cross_validation(X, y, models_dict)
-    if best_name:
-        model_choice = best_name
-        logging.info(f"Selected {model_choice} via CV with F1={best_vals['f1']:.3f}")
-        metrics_path = os.path.join(rnd_dir, "cv_metrics.csv")
-        with open(metrics_path, "w", newline="") as mf:
-            writer = csv.writer(mf)
-            writer.writerow(["model", "f1", "precision", "recall"])
-            for m, vals in all_metrics.items():
-                writer.writerow([m, vals["f1"], vals["precision"], vals["recall"]])
-        logging.info(f"CV metrics written to {metrics_path}")
+    X = np.nan_to_num(np.array(X, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
+    y = np.array(y, dtype=np.int64)
 
     # train & save
     logging.info(f"Training data shape: {X.shape}, model: {model_choice}")

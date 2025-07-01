@@ -18,6 +18,9 @@ from memory_utils import monitor_memory_usage
 import logging
 import config
 
+# track the expected feature length of cached vectors
+EXPECTED_FEAT_LEN = None
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -262,6 +265,7 @@ def load_normalizers(path=NORMALIZERS_CSV):
         rd = csv.DictReader(f)
         for r in rd:
             stats[r["feature"]] = {"mean": float(r["mean"]), "std": float(r["stdDev"]) or 1.0}
+    return stats
 
 def compute_extra_indices(b2,b3,b4,b8,b11):
     eps=1e-6
@@ -308,25 +312,37 @@ def extract_features_from_label(row):
         )
         temp = add_temporal_features(stack)
         temp_center = temp[:, 1, 1].reshape(-1).tolist()
-        b2,b3,b4,b8,b11 = patch[:,1,1]
+        # first five bands correspond to B2, B3, B4, B8 and B11
+        b2, b3, b4, b8, b11 = patch[:5, 1, 1]
         ndvi,evi,evi2,ndwi,nbr_s = compute_extra_indices(b2,b3,b4,b8,b11)
         extras = {"NDVI":ndvi,"EVI":evi,"EVI2":evi2,"NDWI":ndwi,"NBR_s":nbr_s}
         zs = zscore_vector(extras, normals).tolist()
-        return flat + zs + temp_center
+        feats = np.array([row_c, col_c] + flat + zs + temp_center, dtype=np.float32)
+        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
+        return feats
 
 def extract_features_with_cache(tile_path, lat, lon, cache_dir="feature_cache"):
     """Cache wrapper for extract_features_from_label."""
+    global EXPECTED_FEAT_LEN
     cache_key = f"{os.path.basename(tile_path)}_{lat:.6f}_{lon:.6f}"
     cache_file = os.path.join(cache_dir, f"{cache_key}.npy")
 
     if os.path.exists(cache_file):
         logging.info(f"Loading cached features => {cache_file}")
         data = np.load(cache_file)
-        monitor_memory_usage()
-        return data
+        data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
+        if EXPECTED_FEAT_LEN is None:
+            EXPECTED_FEAT_LEN = data.shape[0]
+        if data.shape[0] == EXPECTED_FEAT_LEN:
+            monitor_memory_usage()
+            return data
+        logging.warning(
+            f"Cached length {data.shape[0]} != expected {EXPECTED_FEAT_LEN}; recomputing"
+        )
 
     row = {"tile": os.path.basename(tile_path), "lat": lat, "lon": lon}
     feats = extract_features_from_label(row)
+    EXPECTED_FEAT_LEN = feats.shape[0] if EXPECTED_FEAT_LEN is None else EXPECTED_FEAT_LEN
     os.makedirs(cache_dir, exist_ok=True)
     np.save(cache_file, feats)
     logging.info(f"Saved features to cache => {cache_file}")
