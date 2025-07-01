@@ -175,19 +175,14 @@ def train_model(choice, X, y):
     feat_var  = np.var(X, axis=0)
     feat_std  = np.sqrt(feat_var)
 
-    # (optional debug)
-    print("Feature statistics:")
-    for i, name in enumerate(INDICES + []):  # if you want to label features, extend with other band names
-        if i < 5:  # only print first few for brevity
-            print(f"  [{i}] min={feat_min[i]:.3f}, max={feat_max[i]:.3f}, mean={feat_mean[i]:.3f}, var={feat_var[i]:.3f}")
-    # you can remove or expand this as needed
-
     c = choice.lower()
     if c == "svm":
         # StandardScaler for true zero‐mean/unit‐variance
         scaler = StandardScaler().fit(X)
         Xs     = scaler.transform(X)
-        clf    = SVC(probability=True, gamma="auto", **SVM_PARAMS)
+        # avoid passing duplicate gamma parameter
+        svm_params = SVM_PARAMS.copy()
+        clf = SVC(probability=True, **svm_params)
         clf.fit(Xs, y)
         return SklearnWrapper(clf, feat_means, feat_std, scaler)
 
