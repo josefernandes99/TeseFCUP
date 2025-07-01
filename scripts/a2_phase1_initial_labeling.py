@@ -8,6 +8,7 @@ import random
 from xml.dom import minidom
 from xml.etree.ElementTree import Element, SubElement, tostring
 import rasterio
+from pyproj import Transformer
 
 from config import (
     LABELS_FILE, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
@@ -64,14 +65,36 @@ def get_patch_dimensions():
 
 
 def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, out_path=None):
+    """Generate a KML file describing a square patch centred on the given point.
+
+        ``center_lat`` and ``center_lon`` are expected to be in the same coordinate
+        reference system as the raw tiles.  If that CRS is projected (e.g. UTM), the
+        coordinates are converted to the standard WGS84 latitude/longitude system so
+        that the polygon displays correctly in applications like Google Earth.
+        """
     half_w, half_h = patch_width / 2, patch_height / 2
-    coords = [
-        [center_lon-half_w, center_lat-half_h],
-        [center_lon-half_w, center_lat+half_h],
-        [center_lon+half_w, center_lat+half_h],
-        [center_lon+half_w, center_lat-half_h],
-        [center_lon-half_w, center_lat-half_h]
+    corners = [
+        [center_lon - half_w, center_lat - half_h],
+        [center_lon - half_w, center_lat + half_h],
+        [center_lon + half_w, center_lat + half_h],
+        [center_lon + half_w, center_lat - half_h],
+        [center_lon - half_w, center_lat - half_h],
     ]
+
+    # Obtain CRS from any available raw tile
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    crs = None
+    if tifs:
+        try:
+            with rasterio.open(tifs[0]) as src:
+                crs = src.crs
+        except Exception:
+            crs = None
+
+    if crs and not crs.is_geographic:
+        transformer = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+        corners = [transformer.transform(x, y) for x, y in corners]
+
     kml = Element('kml'); kml.set("xmlns","http://www.opengis.net/kml/2.2")
     doc = SubElement(kml, 'Document')
     style = SubElement(doc, 'Style', id="patchStyle")
@@ -79,7 +102,7 @@ def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, ou
     ps = SubElement(style, 'PolyStyle'); SubElement(ps,'fill').text="0"; SubElement(ps,'outline').text="1"
     pm = SubElement(doc, 'Placemark'); SubElement(pm,'styleUrl').text="#patchStyle"; SubElement(pm,'name').text="Candidate Patch"
     poly = SubElement(pm,'Polygon'); outer = SubElement(poly,'outerBoundaryIs'); linear = SubElement(outer,'LinearRing')
-    SubElement(linear,'coordinates').text = " ".join(f"{lon},{lat},0" for lon,lat in coords)
+    SubElement(linear,'coordinates').text = " ".join(f"{lon},{lat},0" for lon, lat in corners)
 
     xml = minidom.parseString(tostring(kml,encoding="utf-8")).toprettyxml(indent="  ", encoding="utf-8")
     dest = out_path or CANDIDATE_KML
