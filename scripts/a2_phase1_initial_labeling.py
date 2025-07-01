@@ -11,26 +11,13 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 import numpy as np
 import rasterio
 from rasterio.windows import Window
-from geo_utils import wgs_to_tile, tile_to_wgs
-from temporal_features import add_temporal_features
-from config import TIMESTAMPS
-from memory_utils import monitor_memory_usage
-import logging
-import config
-
-# track the expected feature length of cached vectors
-EXPECTED_FEAT_LEN = None
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-)
 
 from config import (
     LABELS_FILE, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML,
     TEMP_LABELS_FILE, ROUNDS_DIR,
     NUM_RANDOM_PICKS_PER_TILE,
+    CANDIDATE_PROB_LOWER, CANDIDATE_PROB_UPPER,
     NUM_CANDIDATES_PER_ROUND
 )
 
@@ -90,26 +77,14 @@ def get_patch_dimensions():
 
 
 def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, out_path=None):
-    """Generate a KML polygon around a patch center.
-
-        `center_lat`/`center_lon` are assumed to be in WGS84 while
-        `patch_width`/`patch_height` are in the tile CRS (meters)."""
-    # Convert the center to the tile CRS to compute the bounding box
-    x_c, y_c = wgs_to_tile(center_lat, center_lon)
     half_w, half_h = patch_width / 2, patch_height / 2
-    tile_corners = [
-        (x_c - half_w, y_c - half_h),
-        (x_c - half_w, y_c + half_h),
-        (x_c + half_w, y_c + half_h),
-        (x_c + half_w, y_c - half_h),
-        (x_c - half_w, y_c - half_h)
+    coords = [
+        [center_lon-half_w, center_lat-half_h],
+        [center_lon-half_w, center_lat+half_h],
+        [center_lon+half_w, center_lat+half_h],
+        [center_lon+half_w, center_lat-half_h],
+        [center_lon-half_w, center_lat-half_h]
     ]
-    # Convert corners back to WGS84 for the KML
-    coords = []
-    for x, y in tile_corners:
-        lat, lon = tile_to_wgs(x, y)
-        coords.append([lon, lat])
-
     kml = Element('kml'); kml.set("xmlns","http://www.opengis.net/kml/2.2")
     doc = SubElement(kml, 'Document')
     style = SubElement(doc, 'Style', id="patchStyle")
@@ -182,14 +157,7 @@ def global_sampling_labeling(num_patches):
         if tifs:
             with rasterio.open(tifs[0]) as src:
                 b = src.bounds
-                corners = [
-                    tile_to_wgs(b.left, b.bottom),
-                    tile_to_wgs(b.left, b.top),
-                    tile_to_wgs(b.right, b.top),
-                    tile_to_wgs(b.right, b.bottom),
-                    tile_to_wgs(b.left, b.bottom)
-                ]
-                roi = [[lo, la] for la, lo in corners]
+                roi = [[b.left,b.bottom],[b.left,b.top],[b.right,b.top],[b.right,b.bottom],[b.left,b.bottom]]
         else:
             roi = [[-180,-90],[-180,90],[180,90],[180,-90],[-180,-90]]
     lons = [p[0] for p in roi]; lats = [p[1] for p in roi]
@@ -217,54 +185,13 @@ def global_sampling_labeling(num_patches):
 
 
 # ——————— RICH FEATURE ENGINEERING (for a3 later) ———————
-def compute_normalizers(path=NORMALIZERS_CSV, samples_per_tile=1000):
-    """Compute mean and std for index features directly from raw tiles."""
-    feats = {"NDVI": [], "EVI": [], "EVI2": [], "NDWI": [], "NBR_s": []}
-
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-    if not tifs:
-        raise FileNotFoundError(f"No .tif files found under {RAW_DATA_DIR}")
-
-    for tif in tifs:
-        with rasterio.open(tif) as src:
-            arr = src.read(list(range(1, 6))).astype(float)  # assume bands: B2,B3,B4,B8,B11
-            h, w = arr.shape[1], arr.shape[2]
-            num = min(samples_per_tile, h * w)
-            rows = np.random.randint(0, h, num)
-            cols = np.random.randint(0, w, num)
-            sub = arr[:, rows, cols]
-
-        b2, b3, b4, b8, b11 = sub
-        ndvi, evi, evi2, ndwi, nbr_s = compute_extra_indices(b2, b3, b4, b8, b11)
-        feats["NDVI"].extend(ndvi.flatten())
-        feats["EVI"].extend(evi.flatten())
-        feats["EVI2"].extend(evi2.flatten())
-        feats["NDWI"].extend(ndwi.flatten())
-        feats["NBR_s"].extend(nbr_s.flatten())
-
-    stats = {
-        k: {"mean": float(np.mean(v)), "std": float(np.std(v) or 1.0)}
-        for k, v in feats.items()
-    }
-
-    with open(path, "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["feature", "mean", "stdDev"])
-        for feat, vals in stats.items():
-            w.writerow([feat, vals["mean"], vals["std"]])
-    print(f"Computed normalizers and saved to {path}")
-    return stats
 
 def load_normalizers(path=NORMALIZERS_CSV):
-    if not os.path.exists(path):
-        print(f"Normalizers file not found at {path}; computing from raw data.")
-        return compute_normalizers(path)
-
     stats = {}
     with open(path) as f:
         rd = csv.DictReader(f)
         for r in rd:
-            stats[r["feature"]] = {"mean": float(r["mean"]), "std": float(r["stdDev"]) or 1.0}
+            stats[r["feature"]] = {"mean":float(r["mean"]), "std":float(r["stdDev"]) or 1.0}
     return stats
 
 def compute_extra_indices(b2,b3,b4,b8,b11):
@@ -287,83 +214,39 @@ def extract_features_from_label(row):
     """3×3 window flatten + z-scored extras on center pixel."""
     normals = load_normalizers()
     lat, lon = float(row["lat"]), float(row["lon"])
-    tile_path = os.path.join(RAW_DATA_DIR, row["tile"])
-    if os.path.isdir(tile_path):
-        tifs = glob.glob(os.path.join(tile_path, "*.tif"))
-        if not tifs:
-            raise FileNotFoundError(f"No .tif in {tile_path}")
-        tile_path = tifs[0]
-    if not os.path.exists(tile_path):
-        raise FileNotFoundError(f"Tile file not found ⇒ {tile_path}")
-    with rasterio.open(tile_path) as src:
-        x, y = wgs_to_tile(lat, lon)
-        col_c, row_c = src.index(x, y)
+    tile = os.path.join(RAW_DATA_DIR, row["tile"])
+    tifs = glob.glob(os.path.join(tile,"*.tif"))
+    if not tifs:
+        raise FileNotFoundError(f"No .tif in {tile}")
+    with rasterio.open(tifs[0]) as src:
+        col_c,row_c = src.index(lon,lat)
         col0 = max(col_c-1,0); row0 = max(row_c-1,0)
         if col0+3>src.width:  col0=src.width-3
         if row0+3>src.height: row0=src.height-3
         win = Window(col0,row0,3,3)
         patch = src.read(window=win).astype(float)  # (bands,3,3)
-        flat = patch.reshape(-1).tolist()
-        time_periods = len(TIMESTAMPS)
-        extra = 3  # elevation, slope, aspect
-        bands_per_period = (patch.shape[0] - extra) // time_periods
-        stack = patch[: time_periods * bands_per_period].reshape(
-            time_periods, bands_per_period, 3, 3
-        )
-        temp = add_temporal_features(stack)
-        temp_center = temp[:, 1, 1].reshape(-1).tolist()
-        # first five bands correspond to B2, B3, B4, B8 and B11
-        b2, b3, b4, b8, b11 = patch[:5, 1, 1]
+        flat  = patch.reshape(-1).tolist()          # 5*9
+        b2,b3,b4,b8,b11 = patch[:,1,1]
         ndvi,evi,evi2,ndwi,nbr_s = compute_extra_indices(b2,b3,b4,b8,b11)
         extras = {"NDVI":ndvi,"EVI":evi,"EVI2":evi2,"NDWI":ndwi,"NBR_s":nbr_s}
         zs = zscore_vector(extras, normals).tolist()
-        feats = np.array([row_c, col_c] + flat + zs + temp_center, dtype=np.float32)
-        feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
-        return feats
+        return flat + zs
 
-def extract_features_with_cache(tile_path, lat, lon, cache_dir="feature_cache"):
-    """Cache wrapper for extract_features_from_label."""
-    global EXPECTED_FEAT_LEN
-    cache_key = f"{os.path.basename(tile_path)}_{lat:.6f}_{lon:.6f}"
-    cache_file = os.path.join(cache_dir, f"{cache_key}.npy")
-
-    if os.path.exists(cache_file):
-        logging.info(f"Loading cached features => {cache_file}")
-        data = np.load(cache_file)
-        data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-        if EXPECTED_FEAT_LEN is None:
-            EXPECTED_FEAT_LEN = data.shape[0]
-        if data.shape[0] == EXPECTED_FEAT_LEN:
-            monitor_memory_usage()
-            return data
-        logging.warning(
-            f"Cached length {data.shape[0]} != expected {EXPECTED_FEAT_LEN}; recomputing"
-        )
-
-    row = {"tile": os.path.basename(tile_path), "lat": lat, "lon": lon}
-    feats = extract_features_from_label(row)
-    EXPECTED_FEAT_LEN = feats.shape[0] if EXPECTED_FEAT_LEN is None else EXPECTED_FEAT_LEN
-    os.makedirs(cache_dir, exist_ok=True)
-    np.save(cache_file, feats)
-    logging.info(f"Saved features to cache => {cache_file}")
-    monitor_memory_usage()
-    return feats
 
 # ——————— HYBRID CANDIDATE SAMPLING ———————
 
 def sample_random_candidates():
     pts=[]
     for tif in glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")):
-        tile = os.path.basename(tif)
+        tile = os.path.basename(os.path.dirname(tif))
         with rasterio.open(tif) as src:
             H,W = src.height, src.width
             total = H*W
             picks = random.sample(range(total), min(NUM_RANDOM_PICKS_PER_TILE, total))
             for idx in picks:
-                r, c = divmod(idx, W)
-                x, y = src.xy(r, c)
-                lat, lon = tile_to_wgs(x, y)
-                pts.append((tile, lat, lon))
+                r,c = divmod(idx, W)
+                lon,lat = src.xy(r,c)
+                pts.append((tile,lat,lon))
     return pts
 
 def sample_margin_candidates():
@@ -378,7 +261,7 @@ def sample_margin_candidates():
     with open(pcsv) as f:
         for r in csv.DictReader(f):
             p=float(r["predicted_prob"])
-            if config.CANDIDATE_PROB_LOWER <= p <= config.CANDIDATE_PROB_UPPER:
+            if CANDIDATE_PROB_LOWER <= p <= CANDIDATE_PROB_UPPER:
                 unc.append(r)
     chosen = random.sample(unc, min(len(unc), NUM_CANDIDATES_PER_ROUND))
     return [(r["tile"], float(r["center_lat"]), float(r["center_lon"])) for r in chosen]
