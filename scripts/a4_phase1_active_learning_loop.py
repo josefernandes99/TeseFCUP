@@ -22,11 +22,11 @@ def append_temp_labels(new_labels_file):
     if not new_rows:
         print("No candidate labels to append.")
         return
+    # Append using the master CSV column order: id, lat, lon, tile, label
     with open(TEMP_LABELS_FILE, "a", newline="") as tf:
         wri = csv.writer(tf)
         for r in new_rows:
-            # Fix: use "lat" and "lon" instead of "candidate_x" and "candidate_y"
-            wri.writerow([r["id"], r["tile"], r["lat"], r["lon"], r["label"]])
+            wri.writerow([r["id"], r["lat"], r["lon"], r["tile"], r["label"]])
     print(f"Appended {len(new_rows)} new labels => {TEMP_LABELS_FILE}")
 
 def active_learning_loop():

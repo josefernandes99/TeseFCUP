@@ -391,7 +391,8 @@ def active_learning_round(round_num, labels_file, model_choice):
     tmp = os.path.join(rnd_dir, "temp_labels.csv")
     with open(tmp, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["id","tile","lat","lon","label"])
+        # Column order matches the master labels CSV
+        w.writerow(["id", "lat", "lon", "tile", "label"])
     for t, r, c, la, lo, p in cands:
         sub = os.path.join(ROUNDS_DIR, f"round_{t}")
         if not os.path.isdir(sub):
@@ -408,7 +409,7 @@ def active_learning_round(round_num, labels_file, model_choice):
         if lab:
             eid = f"AL_{round_num}_{int(random.random()*1e6)}"
             with open(tmp, "a", newline="") as f2:
-                csv.writer(f2).writerow([eid, t, la, lo, lab])
+                csv.writer(f2).writerow([eid, la, lo, t, lab])
             print("Label saved.")
     print(f"Round {round_num} complete; labels at {tmp}")
     return tmp
