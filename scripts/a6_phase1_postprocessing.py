@@ -54,7 +54,7 @@ def classify_tile(tile_path, model):
         # remove any connected region of 1’s smaller than SIEVE_MIN_SIZE
         sieved = sieve(
             pimg,
-            size_threshold=SIEVE_MIN_SIZE,
+            size=SIEVE_MIN_SIZE,
             connectivity=8
         )
 
