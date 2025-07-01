@@ -62,9 +62,8 @@ def duplicate_exists(lat, lon, labels):
 
 
 def get_tile_for_coordinate(_lat, _lon):
-    folders = glob.glob(os.path.join(RAW_DATA_DIR, "*"))
-    return os.path.basename(random.choice(folders)) if folders else "unknown"
-
+    files = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    return os.path.basename(random.choice(files)) if files else "unknown"
 
 def get_patch_dimensions():
     tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
@@ -214,11 +213,10 @@ def extract_features_from_label(row):
     """3×3 window flatten + z-scored extras on center pixel."""
     normals = load_normalizers()
     lat, lon = float(row["lat"]), float(row["lon"])
-    tile = os.path.join(RAW_DATA_DIR, row["tile"])
-    tifs = glob.glob(os.path.join(tile,"*.tif"))
-    if not tifs:
-        raise FileNotFoundError(f"No .tif in {tile}")
-    with rasterio.open(tifs[0]) as src:
+    tif_path = os.path.join(RAW_DATA_DIR, row["tile"])
+    if not os.path.exists(tif_path):
+        raise FileNotFoundError(f"Tile file not found: {tif_path}")
+    with rasterio.open(tif_path) as src:
         col_c,row_c = src.index(lon,lat)
         col0 = max(col_c-1,0); row0 = max(row_c-1,0)
         if col0+3>src.width:  col0=src.width-3
@@ -238,7 +236,7 @@ def extract_features_from_label(row):
 def sample_random_candidates():
     pts=[]
     for tif in glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")):
-        tile = os.path.basename(os.path.dirname(tif))
+        tile = os.path.basename(tif)
         with rasterio.open(tif) as src:
             H,W = src.height, src.width
             total = H*W

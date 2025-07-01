@@ -51,17 +51,10 @@ from config import (
 # -----------------------------------------------------------------------------
 def extract_features_from_label(row):
     lat, lon = float(row["lat"]), float(row["lon"])
-    tile_folder = os.path.join(RAW_DATA_DIR, row["tile"])
-    if not os.path.isdir(tile_folder):
-        cand = glob.glob(os.path.join(RAW_DATA_DIR, "*"))
-        if not cand:
-            raise FileNotFoundError(f"No tile folders under {RAW_DATA_DIR}")
-        tile_folder = cand[0]
-        print(f"Warning: tile '{row['tile']}' not found; using {tile_folder}")
-    tifs = glob.glob(os.path.join(tile_folder, "*.tif"))
-    if not tifs:
-        raise FileNotFoundError(f"No .tif in {tile_folder}")
-    with rasterio.open(tifs[0]) as src:
+    tif_path = os.path.join(RAW_DATA_DIR, row["tile"])
+    if not os.path.exists(tif_path):
+        raise FileNotFoundError(f"Tile file not found: {tif_path}")
+    with rasterio.open(tif_path) as src:
         for vals in src.sample([(lon, lat)]):
             return list(vals.astype(float))
     return None
@@ -226,7 +219,7 @@ def get_pixel_corners(src, r, c):
 
 
 def predict_entire_tile(tile_path, model):
-    tile_name = os.path.basename(os.path.dirname(tile_path))
+    tile_name = os.path.basename(tile_path)
     with rasterio.open(tile_path) as src:
         arr   = src.read().astype(np.float32)       # (bands, H, W)
         b, H, W = arr.shape
@@ -305,12 +298,11 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
 # 6) Candidate‐patch KML (unchanged)
 # -----------------------------------------------------------------------------
 def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
-    tile_dir = os.path.join(RAW_DATA_DIR, tile_name)
-    tifs     = glob.glob(os.path.join(tile_dir, "*.tif"))
-    if not tifs:
+    tif_path = os.path.join(RAW_DATA_DIR, tile_name)
+    if not os.path.exists(tif_path):
         print(f"WARNING: missing tile {tile_name}; skipping candidate KML.")
         return
-    with rasterio.open(tifs[0]) as src:
+    with rasterio.open(tif_path) as src:
         corners = get_pixel_corners(src, row_idx, col_idx)
 
     kml = Element('kml', xmlns="http://www.opengis.net/kml/2.2")
