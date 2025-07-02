@@ -45,6 +45,15 @@ def cleanup_previous_runs():
         except Exception as e:
             print(f"Failed to delete {final_preds}: {e}")
 
+    # Remove final predictions CSV
+    final_summary = os.path.join("C:/Users/Vitorino/PycharmProjects/PythonProject/data/phase1", "final_summary.txt")
+    if os.path.exists(final_summary):
+        try:
+            os.remove(final_summary)
+            print(f"Deleted => {final_summary}")
+        except Exception as e:
+            print(f"Failed to delete {final_summary}: {e}")
+
     # Remove overlay tiles produced by previous postprocessing
     overlays = glob.glob(os.path.join(RAW_DATA_DIR, "*_overlay.tif"))
     for o in overlays:
