@@ -21,9 +21,6 @@ def cleanup_previous_runs():
     """Remove outputs from any prior pipeline executions."""
     # Delete round folders like round_1, round_2, etc.
     round_folders = glob.glob(os.path.join(ROUNDS_DIR, "round*"))
-    temp_candidates = os.path.join(ROUNDS_DIR, "round_temp_candidates")
-    if os.path.isdir(temp_candidates):
-        round_folders.append(temp_candidates)
     for rf in round_folders:
         try:
             shutil.rmtree(rf)

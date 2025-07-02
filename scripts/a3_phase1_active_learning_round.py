@@ -21,6 +21,8 @@ from pyproj import Transformer
 import numpy as np
 import rasterio
 from rasterio.features import shapes, sieve
+from shapely.geometry import shape, Polygon, MultiPolygon
+from shapely.ops import unary_union, transform as shp_transform
 import torch
 import torch.nn as nn
 from joblib import dump
@@ -256,7 +258,40 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
     """Export polygons after thresholding and sieving predictions."""
     kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
     tifs     = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-    total_polys = 0
+    polys = []
+
+    for tp in tifs:
+        with rasterio.open(tp) as src:
+            arr = src.read().astype(np.float32)
+            b, H, W = arr.shape
+            X = arr.reshape(b, -1).T
+            probs = model.predict_proba(X)[:, 1].reshape(H, W)
+            mask = (probs >= MIN_AGRI_PROB).astype("uint8")
+            if SIEVE_MIN_SIZE > 0:
+                mask = sieve(mask, size=SIEVE_MIN_SIZE, connectivity=8)
+            transformer = None
+            if src.crs and not src.crs.is_geographic:
+                transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+
+            for geom, val in shapes(mask, mask=mask, transform=src.transform):
+                if val != 1:
+                    continue
+                poly = shape(geom)
+                if transformer:
+                    poly = shp_transform(transformer.transform, poly)
+                polys.append(poly)
+
+    if not polys:
+        print(f"⚠️  No polygons (all probs < {MIN_AGRI_PROB})")
+        return
+
+    merged = unary_union(polys)
+    if isinstance(merged, Polygon):
+        poly_list = [merged]
+    elif isinstance(merged, MultiPolygon):
+        poly_list = list(merged.geoms)
+    else:
+        poly_list = []
 
     with open(kml_path, "w", encoding="utf-8") as f:
         f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
@@ -266,45 +301,25 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
         f.write('      <PolyStyle><color>400000ff</color><outline>1</outline></PolyStyle>\n')
         f.write('    </Style>\n')
 
-        for tp in tifs:
-            with rasterio.open(tp) as src:
-                arr   = src.read().astype(np.float32)
-                b, H, W = arr.shape
-                X     = arr.reshape(b, -1).T
-                probs = model.predict_proba(X)[:,1].reshape(H, W)
-                mask  = (probs >= MIN_AGRI_PROB).astype("uint8")
-                if SIEVE_MIN_SIZE > 0:
-                    mask = sieve(mask, size=SIEVE_MIN_SIZE, connectivity=8)
-                transformer = None
-                if src.crs and not src.crs.is_geographic:
-                    transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
-
-                for geom, val in shapes(mask, mask=mask, transform=src.transform):
-                    if val != 1: continue
-                    coords = geom["coordinates"][0]
-                    coords = geom["coordinates"][0]
-                    if transformer:
-                        coords = [transformer.transform(x, y) for x, y in coords]
-                    coord_str = " ".join(f"{lon},{lat},0" for lon, lat in coords)
-                    f.write("    <Placemark>\n")
-                    f.write("      <styleUrl>#agriStyle</styleUrl>\n")
-                    f.write("      <Polygon>\n")
-                    f.write("        <outerBoundaryIs>\n")
-                    f.write("          <LinearRing>\n")
-                    f.write(f"            <coordinates>{coord_str}</coordinates>\n")
-                    f.write("          </LinearRing>\n")
-                    f.write("        </outerBoundaryIs>\n")
-                    f.write("      </Polygon>\n")
-                    f.write("    </Placemark>\n")
-                    total_polys += 1
+        total_polys = 0
+        for p in poly_list:
+            coords = list(p.exterior.coords)
+            coord_str = " ".join(f"{lon},{lat},0" for lon, lat in coords)
+            f.write("    <Placemark>\n")
+            f.write("      <styleUrl>#agriStyle</styleUrl>\n")
+            f.write("      <Polygon>\n")
+            f.write("        <outerBoundaryIs>\n")
+            f.write("          <LinearRing>\n")
+            f.write(f"            <coordinates>{coord_str}</coordinates>\n")
+            f.write("          </LinearRing>\n")
+            f.write("        </outerBoundaryIs>\n")
+            f.write("      </Polygon>\n")
+            f.write("    </Placemark>\n")
+            total_polys += 1
 
         f.write("  </Document>\n</kml>\n")
 
-    if total_polys == 0:
-        print(f"⚠️  No polygons (all probs < {MIN_AGRI_PROB})")
-    else:
-        print(f"{total_polys} agricultural polygons saved to {kml_path}")
-
+    print(f"{total_polys} agricultural polygons saved to {kml_path}")
 
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)
