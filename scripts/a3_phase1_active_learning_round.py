@@ -25,8 +25,14 @@ from shapely.geometry import shape, Polygon, MultiPolygon
 from shapely.ops import unary_union, transform as shp_transform
 import torch
 import torch.nn as nn
-from joblib import dump
-from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
+from joblib import dump, Parallel, delayed
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
@@ -224,6 +230,7 @@ def get_pixel_corners(src, r, c):
 
 def predict_entire_tile(tile_path, model):
     tile_name = os.path.basename(tile_path)
+    print(f"Inferring ⇒ {tile_name}")
     with rasterio.open(tile_path) as src:
         arr   = src.read().astype(np.float32)       # (bands, H, W)
         b, H, W = arr.shape
@@ -398,16 +405,29 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
 
     # inference + timing
     tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-    preds = []
     start = time.time()
-    with Progress("[bold cyan]{task.description}", BarColumn(), TaskProgressColumn(),
-                  TimeElapsedColumn(), TimeRemainingColumn()) as prog:
-        task = prog.add_task("Running inference", total=len(tifs))
-        for tp in tifs:
-            preds.extend(predict_entire_tile(tp, model))
-            prog.update(task, advance=1)
+    with Progress(
+        "[bold cyan]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    ) as progress:
+        task = progress.add_task("Running inference", total=len(tifs))
+
+        def wrapped(tp):
+            res = predict_entire_tile(tp, model)
+            progress.update(task, advance=1)
+            return res
+
+        results = Parallel(n_jobs=-1, prefer="threads")(
+            delayed(wrapped)(tp) for tp in tifs
+        )
+    preds = [item for sub in results for item in sub]
     print(f"Total pixels inferred: {len(preds)}")
-    print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time()-start)))}")
+    print(
+        f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}"
+    )
 
     # outputs
     save_predictions(rnd_dir, preds)

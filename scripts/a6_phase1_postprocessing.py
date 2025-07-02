@@ -5,7 +5,14 @@ import glob
 import csv
 import numpy as np
 import rasterio
-from joblib import load
+from joblib import load, Parallel, delayed
+from rich.progress import (
+    Progress,
+    BarColumn,
+    TaskProgressColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, SIEVE_MIN_SIZE
 
 # Note: small-patch filtering via rasterio.sieve is now performed during each
@@ -63,6 +70,17 @@ def save_geotiff(path_out, data, profile):
         dst.write(data, 1)
     print(f"Saved geotiff ⇒ {path_out}")
 
+def process_tile(tfile, model):
+    """Classify one tile and save overlay GeoTIFF."""
+    print(f"Classifying ⇒ {tfile}")
+    cleaned, prof = classify_tile(tfile, model)
+    n_pix = cleaned.size
+    n_agri = int(cleaned.sum())
+    pct_agri = (n_agri / n_pix) * 100 if n_pix else 0.0
+    out_path = tfile.replace(".tif", "_overlay.tif")
+    save_geotiff(out_path, cleaned, prof)
+    return os.path.basename(tfile), pct_agri, n_pix, n_agri
+
 def postprocessing():
     print("Starting postprocessing…")
     mp = get_final_model_path()
@@ -79,14 +97,27 @@ def postprocessing():
     total_agri_pixels = 0
     pct_list = []
 
-    for tfile in tile_files:
-        print(f"Classifying & sieving ⇒ {tfile}")
-        cleaned, prof = classify_tile(tfile, model)
-        n_pix = cleaned.size
-        n_agri = int(cleaned.sum())
-        pct_agri = (n_agri / n_pix) * 100 if n_pix else 0.0
+    with Progress(
+        "[bold cyan]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    ) as progress:
+        task = progress.add_task("Classifying tiles", total=len(tile_files))
+
+        def wrapped(tp):
+            res = process_tile(tp, model)
+            progress.update(task, advance=1)
+            return res
+
+        results = Parallel(n_jobs=-1, prefer="threads")(
+            delayed(wrapped)(tp) for tp in tile_files
+        )
+
+    for tile, pct_agri, n_pix, n_agri in results:
         summary.append([
-            os.path.basename(tfile),
+            tile,
             f"{pct_agri:.2f}",
             n_pix,
             n_agri,
@@ -94,9 +125,6 @@ def postprocessing():
         pct_list.append(pct_agri)
         total_pixels += n_pix
         total_agri_pixels += n_agri
-
-        out_path = tfile.replace(".tif", "_overlay.tif")
-        save_geotiff(out_path, cleaned, prof)
 
     # write out per-tile CSV
     csv_path = os.path.join(DATA_DIR, "final_predictions.csv")
