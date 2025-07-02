@@ -19,7 +19,7 @@ from pyproj import Transformer
 
 import numpy as np
 import rasterio
-from rasterio.features import shapes
+from rasterio.features import shapes, sieve
 import torch
 import torch.nn as nn
 from joblib import dump
@@ -38,6 +38,7 @@ from config import (
     CANDIDATE_PROB_LOWER,
     CANDIDATE_PROB_UPPER,
     MIN_AGRI_PROB,
+    SIEVE_MIN_SIZE,
     SVM_PARAMS,
     RF_PARAMS,
     RESNET_EPOCHS,
@@ -251,6 +252,7 @@ def save_predictions(round_folder, preds):
 
 
 def save_agricultural_polygons_kml(round_folder, model, round_num):
+    """Export polygons after thresholding and sieving predictions."""
     kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
     tifs     = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     total_polys = 0
@@ -270,6 +272,8 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
                 X     = arr.reshape(b, -1).T
                 probs = model.predict_proba(X)[:,1].reshape(H, W)
                 mask  = (probs >= MIN_AGRI_PROB).astype("uint8")
+                if SIEVE_MIN_SIZE > 0:
+                    mask = sieve(mask, size=SIEVE_MIN_SIZE, connectivity=8)
                 transformer = None
                 if src.crs and not src.crs.is_geographic:
                     transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)

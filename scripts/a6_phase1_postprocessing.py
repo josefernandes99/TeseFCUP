@@ -5,9 +5,12 @@ import glob
 import csv
 import numpy as np
 import rasterio
-from rasterio.features import sieve
 from joblib import load
 from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, SIEVE_MIN_SIZE
+
+# Note: small-patch filtering via rasterio.sieve is now performed during each
+# active learning round. The final postprocessing step simply runs the last
+# model and saves geotiffs without additional sieving.
 
 def get_final_model_path():
     round_folders = glob.glob(os.path.join(ROUNDS_DIR, "round_*"))
@@ -37,9 +40,7 @@ def classify_tile(tile_path, model):
     """
     1) Reads the multi-band tile.
     2) Predicts class (0/1) for every pixel.
-    3) Applies a connected‐component sieve filter to drop
-       all agricultural patches < SIEVE_MIN_SIZE pixels.
-    Returns the cleaned single‐band array + original profile.
+    Returns the single‐band prediction array and original profile.
     """
     with rasterio.open(tile_path) as src:
         img = src.read()                 # shape: (bands, height, width)
@@ -50,15 +51,7 @@ def classify_tile(tile_path, model):
         preds = model.predict(X)        # array of length h*w, values ∈ {0,1}
         pimg = preds.reshape(h, w).astype(np.uint8)
 
-        # --- SIEVE FILTER ---
-        # remove any connected region of 1’s smaller than SIEVE_MIN_SIZE
-        sieved = sieve(
-            pimg,
-            size=SIEVE_MIN_SIZE,
-            connectivity=8
-        )
-
-        return sieved, src.profile
+        return pimg, src.profile
 
 def save_geotiff(path_out, data, profile):
     profile.update(
@@ -71,7 +64,7 @@ def save_geotiff(path_out, data, profile):
     print(f"Saved geotiff ⇒ {path_out}")
 
 def postprocessing():
-    print("Starting postprocessing with Rasterio sieve…")
+    print("Starting postprocessing…")
     mp = get_final_model_path()
     if mp is None:
         return
