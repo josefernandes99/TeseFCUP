@@ -26,6 +26,7 @@ from shapely.ops import unary_union, transform as shp_transform
 import torch
 import torch.nn as nn
 from joblib import dump, Parallel, delayed
+from memory_watcher import free_unused_memory
 from rich.progress import (
     Progress,
     BarColumn,
@@ -402,6 +403,8 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
     mp = os.path.join(rnd_dir, f"model_round_{round_num}.pkl")
     dump(model, mp)
     print(f"Model saved to {mp}")
+    del X, y
+    free_unused_memory()
 
     # inference + timing
     tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
@@ -424,6 +427,8 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
             delayed(wrapped)(tp) for tp in tifs
         )
     preds = [item for sub in results for item in sub]
+    del results
+    free_unused_memory()
     print(f"Total pixels inferred: {len(preds)}")
     print(
         f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}"

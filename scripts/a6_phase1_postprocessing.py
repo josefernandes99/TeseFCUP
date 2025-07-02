@@ -13,6 +13,7 @@ from rich.progress import (
     TimeElapsedColumn,
     TimeRemainingColumn,
 )
+from memory_watcher import free_unused_memory
 from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, SIEVE_MIN_SIZE
 
 # Note: small-patch filtering via rasterio.sieve is now performed during each
@@ -79,6 +80,7 @@ def process_tile(tfile, model):
     pct_agri = (n_agri / n_pix) * 100 if n_pix else 0.0
     out_path = tfile.replace(".tif", "_overlay.tif")
     save_geotiff(out_path, cleaned, prof)
+    free_unused_memory()
     return os.path.basename(tfile), pct_agri, n_pix, n_agri
 
 def postprocessing():

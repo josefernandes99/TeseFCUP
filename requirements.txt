@@ -16,3 +16,4 @@ rich==13.7.0
 torch==2.5.0
 scikit-learn==1.5.0
 joblib==1.4.2
+psutil==5.9.8

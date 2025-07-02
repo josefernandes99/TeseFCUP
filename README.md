@@ -10,6 +10,7 @@ The repository also contains an older, experimental segmentation workflow under 
 - Interactive labeling of image patches to build an initial training set
 - Active learning loop that trains a model (ResNet, SVM or RandomForest) and suggests new candidate patches for labeling
 - Post‑processing step that classifies all tiles and produces cleaned overlay rasters along with CSV and text summaries
+- Automatic memory watcher that frees unused resources during processing
 ## Repository Layout
 
 ```
