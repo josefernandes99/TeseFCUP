@@ -32,7 +32,7 @@ from rich.progress import (
     BarColumn,
     TaskProgressColumn,
     TimeElapsedColumn,
-    TimeRemainingColumn,
+    TimeRemainingColumn, TextColumn,
 )
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
@@ -229,7 +229,8 @@ def get_pixel_corners(src, r, c):
         corners = [transformer.transform(x, y) for x, y in corners]
     return [[lon, lat] for lon, lat in corners]
 
-def predict_entire_tile(tile_path, model):
+def predict_entire_tile(tile_path, model, progress=None, task_id=None):
+    """Run inference on a tile and optionally update a progress bar per pixel."""
     tile_name = os.path.basename(tile_path)
     print(f"Inferring ⇒ {tile_name}")
     with rasterio.open(tile_path) as src:
@@ -244,10 +245,12 @@ def predict_entire_tile(tile_path, model):
         for idx, (r, c) in enumerate(zip(rows, cols)):
             p = float(probs[idx])
             corners = get_pixel_corners(src, r, c)
-            mean_lat = sum(y for x,y in corners) / len(corners)
-            mean_lon = sum(x for x,y in corners) / len(corners)
+            mean_lat = sum(y for x, y in corners) / len(corners)
+            mean_lon = sum(x for x, y in corners) / len(corners)
             results.append([tile_name, r, c, mean_lat, mean_lon, p])
-    return results
+            if progress is not None and task_id is not None:
+                progress.update(task_id, advance=1)
+    return results, H * W
 
 
 # -----------------------------------------------------------------------------
@@ -408,31 +411,36 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
 
     # inference + timing
     tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    preds = []
     start = time.time()
+
+    total_pixels = 0
+    for tp in tifs:
+        with rasterio.open(tp) as src:
+            total_pixels += src.width * src.height
+
     with Progress(
-        "[bold cyan]{task.description}",
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ) as progress:
-        task = progress.add_task("Running inference", total=len(tifs))
-
-        def wrapped(tp):
-            res = predict_entire_tile(tp, model)
-            progress.update(task, advance=1)
-            return res
-
-        results = Parallel(n_jobs=-1, prefer="threads")(
-            delayed(wrapped)(tp) for tp in tifs
+            "[bold cyan]{task.description}",
+            BarColumn(),
+            TaskProgressColumn(),
+            TextColumn('Tile {task.fields[tiles_done]}/{task.fields[total_tiles]}'),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+    ) as prog:
+        task = prog.add_task(
+            "Running inference",
+            total=total_pixels,
+            tiles_done=0,
+            total_tiles=len(tifs),
         )
-    preds = [item for sub in results for item in sub]
-    del results
-    free_unused_memory()
+
+        for idx, tp in enumerate(tifs, start=1):
+            prog.update(task, description=f"Tile {idx}/{len(tifs)}")
+            tile_preds, _ = predict_entire_tile(tp, model, progress=prog, task_id=task)
+            preds.extend(tile_preds)
+            prog.update(task, tiles_done=idx)
     print(f"Total pixels inferred: {len(preds)}")
-    print(
-        f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}"
-    )
+    print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
 
     # outputs
     save_predictions(rnd_dir, preds)
