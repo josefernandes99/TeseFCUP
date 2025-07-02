@@ -29,29 +29,40 @@ def append_temp_labels(new_labels_file):
             wri.writerow([r["id"], r["lat"], r["lon"], r["tile"], r["label"]])
     print(f"Appended {len(new_rows)} new labels => {TEMP_LABELS_FILE}")
 
-def active_learning_loop():
-    try:
-        nr = int(input("How many AL rounds? => "))
-    except ValueError:
-        print("Invalid => default=1")
-        nr = 1
-
-    print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
-    models = ["ResNet", "SVM", "RandomForest"]
-    ch = input("=> ").strip()
-    if ch in ["1", "2", "3"]:
-        mchoice = models[int(ch) - 1]
+def active_learning_loop(start_round=1, total_rounds=None, model_choice=None, checkpoint_cb=None):
+    if total_rounds is None:
+        try:
+            nr = int(input("How many AL rounds? => "))
+        except ValueError:
+            print("Invalid => default=1")
+            nr = 1
     else:
-        print("Invalid => default=RandomForest")
-        mchoice = "RandomForest"
+        nr = total_rounds
+
+    if model_choice is None:
+        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
+        models = ["ResNet", "SVM", "RandomForest"]
+        ch = input("=> ").strip()
+        if ch in ["1", "2", "3"]:
+            mchoice = models[int(ch) - 1]
+        else:
+            print("Invalid => default=RandomForest")
+            mchoice = "RandomForest"
+    else:
+        mchoice = model_choice
 
     initialize_temp_labels()
-    for r in range(1, nr + 1):
-        # Skip candidate labeling after the final round
+
+    if checkpoint_cb:
+        checkpoint_cb(start_round, nr, mchoice)
+
+    for r in range(start_round, nr + 1):
         request = r < nr
         newfile = active_learning_round(r, TEMP_LABELS_FILE, mchoice, request_labels=request)
         if request and newfile:
             append_temp_labels(newfile)
+        if checkpoint_cb and r < nr:
+            checkpoint_cb(r + 1, nr, mchoice)
     print("AL loop done. Final model => last round folder.")
 
 if __name__ == "__main__":

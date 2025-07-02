@@ -63,6 +63,12 @@ The script performs the following steps:
 5. **Post‑processing** – uses the final model to classify each tile and saves overlay rasters plus a CSV and text summary with overall statistics.
 All intermediate results are stored under `data/phase1` and `labels/phase1`.
 
+If the pipeline is interrupted, a checkpoint file is written under
+`data/phase1/checkpoint.txt`. Running `ready_to_run_phase1.py` again will prompt
+you to resume from that step (and round if mid-way through active learning) or
+start from the beginning. The checkpoint is removed automatically once the
+pipeline finishes.
+
 ## Notes
 
 - The archived `scripts/backup (old)` folder contains a previous, more complex pipeline that handled high‑resolution imagery and segmentation. It is not actively maintained but may be useful for reference.

@@ -10,6 +10,7 @@ RAW_DATA_DIR = os.path.join(DATA_DIR, "raw")
 ROUNDS_DIR = os.path.join(DATA_DIR, "rounds")
 LABELS_DIR = os.path.join(BASE_DIR, "labels", "phase1")
 MODELS_DIR = os.path.join(BASE_DIR, "models")
+CHECKPOINT_FILE = os.path.join(DATA_DIR, "checkpoint.txt")
 
 for folder in [RAW_DATA_DIR, ROUNDS_DIR, LABELS_DIR, MODELS_DIR]:
     if not os.path.exists(folder):
