@@ -75,22 +75,59 @@ def postprocessing():
         return
 
     summary = []
+    total_pixels = 0
+    total_agri_pixels = 0
+    pct_list = []
+
     for tfile in tile_files:
         print(f"Classifying & sieving ⇒ {tfile}")
         cleaned, prof = classify_tile(tfile, model)
-        pct_agri = (cleaned.sum() / cleaned.size) * 100
-        summary.append([os.path.basename(tfile), f"{pct_agri:.2f}"])
+        n_pix = cleaned.size
+        n_agri = int(cleaned.sum())
+        pct_agri = (n_agri / n_pix) * 100 if n_pix else 0.0
+        summary.append([
+            os.path.basename(tfile),
+            f"{pct_agri:.2f}",
+            n_pix,
+            n_agri,
+        ])
+        pct_list.append(pct_agri)
+        total_pixels += n_pix
+        total_agri_pixels += n_agri
 
         out_path = tfile.replace(".tif", "_overlay.tif")
         save_geotiff(out_path, cleaned, prof)
 
-    # write out summary CSV
+    # write out per-tile CSV
     csv_path = os.path.join(DATA_DIR, "final_predictions.csv")
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["tile", "pct_agricultural"])
+        writer.writerow(["tile", "pct_agricultural", "pixels_total", "pixels_agricultural"])
         writer.writerows(summary)
+
+    # global statistics
+    if pct_list:
+        overall_pct = (total_agri_pixels / total_pixels) * 100 if total_pixels else 0
+        avg_pct = float(np.mean(pct_list))
+        std_pct = float(np.std(pct_list))
+        min_pct = float(np.min(pct_list))
+        max_pct = float(np.max(pct_list))
+    else:
+        overall_pct = avg_pct = std_pct = min_pct = max_pct = 0.0
+
+    stats_path = os.path.join(DATA_DIR, "final_summary.txt")
+    with open(stats_path, "w") as sf:
+        sf.write(f"Tiles processed: {len(tile_files)}\n")
+        sf.write(f"Total pixels: {total_pixels}\n")
+        sf.write(f"Total agricultural pixels: {total_agri_pixels}\n")
+        sf.write(f"Overall agricultural %: {overall_pct:.2f}\n")
+        sf.write(f"Average tile %: {avg_pct:.2f}\n")
+        sf.write(f"Std dev tile %: {std_pct:.2f}\n")
+        sf.write(f"Min tile %: {min_pct:.2f}\n")
+        sf.write(f"Max tile %: {max_pct:.2f}\n")
+
     print(f"Postprocessing complete ⇒ {csv_path}")
+    print(f"Summary statistics ⇒ {stats_path}")
 
 if __name__ == "__main__":
     postprocessing()

@@ -9,8 +9,7 @@ The repository also contains an older, experimental segmentation workflow under 
 - Automated download of Sentinel‑2 tiles covering your region of interest
 - Interactive labeling of image patches to build an initial training set
 - Active learning loop that trains a model (ResNet, SVM or RandomForest) and suggests new candidate patches for labeling
-- Post‑processing step that classifies all tiles and produces cleaned overlay rasters and a CSV summary
-
+- Post‑processing step that classifies all tiles and produces cleaned overlay rasters along with CSV and text summaries
 ## Repository Layout
 
 ```
@@ -61,8 +60,7 @@ The script performs the following steps:
 2. **Data download** – exports Sentinel‑2 tiles for the configured islands (see `scripts/a1_phase1_data_download.py`).
 3. **Initial labeling** – guides you through labeling a handful of pixels until a balanced set is reached.
 4. **Active learning** – repeatedly trains a model and proposes uncertain patches for further labeling.
-5. **Post‑processing** – uses the final model to classify each tile and saves overlay rasters plus a summary CSV.
-
+5. **Post‑processing** – uses the final model to classify each tile and saves overlay rasters plus a CSV and text summary with overall statistics.
 All intermediate results are stored under `data/phase1` and `labels/phase1`.
 
 ## Notes

@@ -342,7 +342,21 @@ def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
 # -----------------------------------------------------------------------------
 # 7) Active‐Learning orchestration (unchanged aside from new train_model)
 # -----------------------------------------------------------------------------
-def active_learning_round(round_num, labels_file, model_choice):
+def active_learning_round(round_num, labels_file, model_choice, request_labels=True):
+    """Run one active learning round.
+
+    Parameters
+    ----------
+    round_num : int
+        Current round number (1-indexed).
+    labels_file : str
+        CSV with existing labels used for training.
+    model_choice : str
+        Which model to train ("ResNet", "SVM", or "RandomForest").
+    request_labels : bool, optional
+        If False, skip the candidate selection/labeling step. This is used for
+        the final round so the user isn't prompted for more labels.
+    """
     print(f"\n=== Starting Active Learning Round {round_num} ===")
     rnd_dir = os.path.join(ROUNDS_DIR, f"round_{round_num}")
     os.makedirs(rnd_dir, exist_ok=True)
@@ -383,6 +397,10 @@ def active_learning_round(round_num, labels_file, model_choice):
     # outputs
     save_predictions(rnd_dir, preds)
     save_agricultural_polygons_kml(rnd_dir, model, round_num)
+
+    if not request_labels:
+        print(f"Round {round_num} complete (no candidate labeling).")
+        return None
 
     # candidate selection
     unc = [p for p in preds if CANDIDATE_PROB_LOWER <= p[5] <= CANDIDATE_PROB_UPPER]

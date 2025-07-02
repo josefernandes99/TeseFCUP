@@ -47,8 +47,10 @@ def active_learning_loop():
 
     initialize_temp_labels()
     for r in range(1, nr + 1):
-        newfile = active_learning_round(r, TEMP_LABELS_FILE, mchoice)
-        if r < nr and newfile:
+        # Skip candidate labeling after the final round
+        request = r < nr
+        newfile = active_learning_round(r, TEMP_LABELS_FILE, mchoice, request_labels=request)
+        if request and newfile:
             append_temp_labels(newfile)
     print("AL loop done. Final model => last round folder.")
 
