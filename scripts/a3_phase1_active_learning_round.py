@@ -13,6 +13,7 @@ os.environ["MKL_NUM_THREADS"] = str(cpu_count())
 import csv
 import glob
 import random
+from collections import defaultdict
 import time
 import datetime
 from pyproj import Transformer
@@ -389,7 +390,28 @@ def active_learning_round(round_num, labels_file, model_choice):
         preds.sort(key=lambda r: abs(r[5]-0.5))
         cands = preds[:NUM_CANDIDATES_PER_ROUND]
     else:
-        cands = unc[:NUM_CANDIDATES_PER_ROUND]
+        # group uncertain predictions by tile
+        by_tile = defaultdict(list)
+        for entry in unc:
+            by_tile[entry[0]].append(entry)
+
+        tiles = list(by_tile.keys())
+        random.shuffle(tiles)
+        per_tile = NUM_CANDIDATES_PER_ROUND // len(tiles)
+        remainder = NUM_CANDIDATES_PER_ROUND % len(tiles)
+
+        cands = []
+        leftovers = []
+        for i, tile in enumerate(tiles):
+            random.shuffle(by_tile[tile])
+            target = per_tile + (1 if i < remainder else 0)
+            selected = by_tile[tile][:target]
+            cands.extend(selected)
+            leftovers.extend(by_tile[tile][len(selected):])
+
+        random.shuffle(leftovers)
+        while len(cands) < NUM_CANDIDATES_PER_ROUND and leftovers:
+            cands.append(leftovers.pop())
     print(f"{len(cands)} candidate patches selected")
 
     tmp = os.path.join(rnd_dir, "temp_labels.csv")
