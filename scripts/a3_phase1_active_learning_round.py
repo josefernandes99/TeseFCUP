@@ -414,31 +414,26 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
     preds = []
     start = time.time()
 
-    total_pixels = 0
-    for tp in tifs:
-        with rasterio.open(tp) as src:
-            total_pixels += src.width * src.height
+    def run_tile(tp):
+        tile_preds, n_pix = predict_entire_tile(tp, model)
+        prog.update(task, advance=1)
+        return tile_preds, n_pix
 
     with Progress(
-            "[bold cyan]{task.description}",
-            BarColumn(),
-            TaskProgressColumn(),
-            TextColumn('Tile {task.fields[tiles_done]}/{task.fields[total_tiles]}'),
-            TimeElapsedColumn(),
-            TimeRemainingColumn(),
+        "[bold cyan]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
     ) as prog:
-        task = prog.add_task(
-            "Running inference",
-            total=total_pixels,
-            tiles_done=0,
-            total_tiles=len(tifs),
+        task = prog.add_task("Running inference", total=len(tifs))
+
+        results = Parallel(n_jobs=-1, prefer="threads")(
+            delayed(run_tile)(tp) for tp in tifs
         )
 
-        for idx, tp in enumerate(tifs, start=1):
-            prog.update(task, description=f"Tile {idx}/{len(tifs)}")
-            tile_preds, _ = predict_entire_tile(tp, model, progress=prog, task_id=task)
-            preds.extend(tile_preds)
-            prog.update(task, tiles_done=idx)
+    for tile_preds, _ in results:
+        preds.extend(tile_preds)
     print(f"Total pixels inferred: {len(preds)}")
     print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
 
