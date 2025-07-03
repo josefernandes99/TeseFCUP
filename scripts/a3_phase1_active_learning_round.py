@@ -414,26 +414,31 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
     preds = []
     start = time.time()
 
+    total_pixels = 0
+    for tp in tifs:
+        with rasterio.open(tp) as src:
+            total_pixels += src.width * src.height
+
     with Progress(
             "[bold cyan]{task.description}",
             BarColumn(),
             TaskProgressColumn(),
+            TextColumn('Tile {task.fields[tiles_done]}/{task.fields[total_tiles]}'),
             TimeElapsedColumn(),
             TimeRemainingColumn(),
     ) as prog:
-        task = prog.add_task("Running inference", total=len(tifs))
-
-        def wrapped(tp):
-            tile_preds, _ = predict_entire_tile(tp, model)
-            prog.update(task, advance=1)
-            return tile_preds
-
-        results = Parallel(n_jobs=-1, prefer="threads")(
-            delayed(wrapped)(tp) for tp in tifs
+        task = prog.add_task(
+            "Running inference",
+            total=total_pixels,
+            tiles_done=0,
+            total_tiles=len(tifs),
         )
 
-        for tile_preds in results:
+        for idx, tp in enumerate(tifs, start=1):
+            prog.update(task, description=f"Tile {idx}/{len(tifs)}")
+            tile_preds, _ = predict_entire_tile(tp, model, progress=prog, task_id=task)
             preds.extend(tile_preds)
+            prog.update(task, tiles_done=idx)
     print(f"Total pixels inferred: {len(preds)}")
     print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
 
