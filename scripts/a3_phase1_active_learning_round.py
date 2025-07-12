@@ -230,7 +230,7 @@ def get_pixel_corners(src, r, c):
     return [[lon, lat] for lon, lat in corners]
 
 def predict_entire_tile(tile_path, model, progress=None, task_id=None):
-    """Run inference on a tile and optionally update a progress bar per pixel."""
+    """Run inference on a tile and optionally update a progress bar."""
     tile_name = os.path.basename(tile_path)
     print(f"Inferring ⇒ {tile_name}")
     with rasterio.open(tile_path) as src:
@@ -238,19 +238,27 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
         b, H, W = arr.shape
         X     = arr.reshape(b, -1).T                # (H*W, bands)
         probs = model.predict_proba(X)[:, 1]        # bulk proba
-        rows  = np.repeat(np.arange(H), W)
-        cols  = np.tile(  np.arange(W), H)
+        rows = np.repeat(np.arange(H, dtype=np.int32), W)
+        cols = np.tile(np.arange(W, dtype=np.int32), H)
 
-        results = []
-        for idx, (r, c) in enumerate(zip(rows, cols)):
-            p = float(probs[idx])
-            corners = get_pixel_corners(src, r, c)
-            mean_lat = sum(y for x, y in corners) / len(corners)
-            mean_lon = sum(x for x, y in corners) / len(corners)
-            results.append([tile_name, r, c, mean_lat, mean_lon, p])
-            if progress is not None and task_id is not None:
-                progress.update(task_id, advance=1)
-    return results, H * W
+        # vectorized center coordinate computation
+        xs, ys = rasterio.transform.xy(src.transform, rows, cols, offset="center")
+        xs = np.asarray(xs)
+        ys = np.asarray(ys)
+        if src.crs and not src.crs.is_geographic:
+            transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+            xs, ys = transformer.transform(xs, ys)
+
+        results = [
+            [tile_name, int(r), int(c), float(lat), float(lon), float(p)]
+            for r, c, lat, lon, p in zip(rows, cols, ys, xs, probs)
+        ]
+
+        if progress is not None and task_id is not None:
+            # bulk update instead of per-pixel loop
+            progress.update(task_id, advance=len(results))
+
+    return results
 
 
 # -----------------------------------------------------------------------------
@@ -415,9 +423,9 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
     start = time.time()
 
     def run_tile(tp):
-        tile_preds, n_pix = predict_entire_tile(tp, model)
+        tile_preds = predict_entire_tile(tp, model)
         prog.update(task, advance=1)
-        return tile_preds, n_pix
+        return tile_preds
 
     with Progress(
         "[bold cyan]{task.description}",
@@ -432,7 +440,7 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
             delayed(run_tile)(tp) for tp in tifs
         )
 
-    for tile_preds, _ in results:
+    for tile_preds in results:
         preds.extend(tile_preds)
     print(f"Total pixels inferred: {len(preds)}")
     print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
