@@ -13,7 +13,7 @@ from pyproj import Transformer
 from config import (
     LABELS_FILE, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML, GRID_KML_DIR,
-    TEMP_LABELS_FILE
+    TEMP_LABELS_FILE, ROI_COORDS
 )
 
 def ensure_labels_file():
@@ -80,6 +80,45 @@ def get_patch_dimensions():
         w = abs(src.transform[0])
         h = abs(src.transform[4])
         return 3 * w, 3 * h
+
+
+def compute_roi_bbox():
+    """Return overall ROI bounding box covering all available tiles."""
+    if ROI_COORDS:
+        return ROI_COORDS
+
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    if not tifs:
+        return [[-180, -90], [-180, 90], [180, 90], [180, -90], [-180, -90]]
+
+    min_lon = min_lat = float("inf")
+    max_lon = max_lat = float("-inf")
+
+    for fp in tifs:
+        try:
+            with rasterio.open(fp) as src:
+                b = src.bounds
+                if src.crs and not src.crs.is_geographic:
+                    transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+                    left, bottom = transformer.transform(b.left, b.bottom)
+                    right, top = transformer.transform(b.right, b.top)
+                else:
+                    left, bottom, right, top = b.left, b.bottom, b.right, b.top
+
+                min_lon = min(min_lon, left)
+                min_lat = min(min_lat, bottom)
+                max_lon = max(max_lon, right)
+                max_lat = max(max_lat, top)
+        except Exception:
+            continue
+
+    return [
+        [min_lon, min_lat],
+        [min_lon, max_lat],
+        [max_lon, max_lat],
+        [max_lon, min_lat],
+        [min_lon, min_lat],
+    ]
 
 
 def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, out_path=None):
@@ -254,18 +293,8 @@ def manual_labeling(num_labels):
 
 
 def global_sampling_labeling(num_patches):
-    # sample uniformly over ROI from config or from first tile
-    from config import ROI_COORDS
-    if ROI_COORDS:
-        roi = ROI_COORDS
-    else:
-        tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-        if tifs:
-            with rasterio.open(tifs[0]) as src:
-                b = src.bounds
-                roi = [[b.left,b.bottom],[b.left,b.top],[b.right,b.top],[b.right,b.bottom],[b.left,b.bottom]]
-        else:
-            roi = [[-180,-90],[-180,90],[180,90],[180,-90],[-180,-90]]
+    """Sample random coordinates across the ROI covering all tiles."""
+    roi = compute_roi_bbox()
     lons = [p[0] for p in roi]; lats = [p[1] for p in roi]
     w, h = get_patch_dimensions()
     added = 0
@@ -324,7 +353,10 @@ def initial_labeling():
         if ok:
             if input("[1] Label more or [2] Train? => ").strip() == "2":
                 break
-            n = 5
+            try:
+                n = int(input("How many to label? "))
+            except Exception:
+                n = 5
         else:
             print(f"Need ≥{MIN_AGRI_COUNT} agri and ratio in [{MIN_AGRI_RATIO},{MAX_AGRI_RATIO}].")
             try:

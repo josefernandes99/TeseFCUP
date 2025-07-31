@@ -23,6 +23,18 @@ GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
 if not os.path.exists(GRID_KML_DIR):
     os.makedirs(GRID_KML_DIR, exist_ok=True)
 
+# Path to the Google Earth "My Places" KML. Can be overridden via the
+# ``MYPLACES_KML`` environment variable.
+if os.name == "nt":
+    _default_myplaces = os.path.join(os.path.expanduser("~"),
+                                     "AppData", "LocalLow",
+                                     "Google", "GoogleEarth",
+                                     "myplaces.kml")
+else:
+    _default_myplaces = os.path.join(os.path.expanduser("~"),
+                                     ".googleearth", "myplaces.kml")
+MYPLACES_KML = os.environ.get("MYPLACES_KML", _default_myplaces)
+
 # --------------------------
 # DATA DOWNLOAD CONFIGURATION (GEE)
 # --------------------------
@@ -49,14 +61,8 @@ DUPLICATE_TOLERANCE = 0.0001
 # --------------------------
 SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest"]
 SVM_PARAMS = {"C": 1.0, "kernel": "rbf", "gamma": "scale"}
-# Optional grid search for the SVM. If enabled, ``train_model`` will run
-# ``GridSearchCV`` over these ranges and ignore ``SVM_PARAMS`` values for ``C``
-# and ``gamma``.
-SVM_USE_GRID = False
-SVM_C_RANGE = [0.1, 1.0, 10.0]
-SVM_GAMMA_RANGE = ["scale", "auto"]
 RF_PARAMS = {"n_estimators": 100, "max_depth": 8}
-NUM_CANDIDATES_PER_ROUND = 5
+NUM_CANDIDATES_PER_ROUND = 25
 CANDIDATE_PROB_LOWER = 0.4
 CANDIDATE_PROB_UPPER = 0.6
 RESNET_EPOCHS = 10
@@ -68,4 +74,4 @@ NUM_RANDOM_PICKS_PER_TILE = 5
 # --------------------------
 # POSTPROCESSING CONFIG
 # --------------------------
-SIEVE_MIN_SIZE = 50
+SIEVE_MIN_SIZE = 5

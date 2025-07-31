@@ -1,13 +1,14 @@
 # scripts/a1_phase1_data_download.py
 
-import os
 import glob
 import math
+import os
 import time
-import ee
+
 import certifi
-from rich.progress import track
-from config import RAW_DATA_DIR, TIMESTAMPS, CLOUDY_PIXEL_PERCENTAGE, BANDS, INDICES
+import ee
+
+from config import RAW_DATA_DIR, TIMESTAMPS, CLOUDY_PIXEL_PERCENTAGE, BANDS
 
 # SSL fix for Earth Engine
 os.environ["SSL_CERT_FILE"]   = certifi.where()

@@ -32,7 +32,7 @@ from rich.progress import (
     BarColumn,
     TaskProgressColumn,
     TimeElapsedColumn,
-    TimeRemainingColumn, TextColumn,
+    TimeRemainingColumn,
 )
 from sklearn.svm import SVC
 from sklearn.model_selection import GridSearchCV
@@ -58,7 +58,7 @@ from config import (
     RESNET_EPOCHS,
     RESNET_LR,
     BATCH_SIZE,
-    INDICES,   # ["NDVI","EVI","EVI2"]
+    # ["NDVI","EVI","EVI2"]
 )
 
 from a2_phase1_initial_labeling import generate_grids_for_all_tiles
@@ -330,38 +330,37 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
     else:
         poly_list = []
 
-    with open(kml_path, "w", encoding="utf-8") as f:
-        f.write('<?xml version="1.0" encoding="UTF-8"?>\n')
-        f.write('<kml xmlns="http://www.opengis.net/kml/2.2">\n  <Document>\n')
-        f.write('    <Style id="agriStyle">\n')
-        f.write('      <LineStyle><color>ff0000ff</color><width>1</width></LineStyle>\n')
-        f.write('      <PolyStyle><color>400000ff</color><outline>1</outline></PolyStyle>\n')
-        f.write('    </Style>\n')
+    doc = Element('Document')
+    style = SubElement(doc, 'Style', id='agriStyle')
+    ln = SubElement(style, 'LineStyle'); SubElement(ln,'color').text='ff0000ff'; SubElement(ln,'width').text='1'
+    ps = SubElement(style, 'PolyStyle'); SubElement(ps,'color').text='400000ff'; SubElement(ps,'outline').text='1'
 
-        total_polys = 0
-        for p in poly_list:
-            coords = list(p.exterior.coords)
-            coord_str = " ".join(f"{lon},{lat},0" for lon, lat in coords)
-            f.write("    <Placemark>\n")
-            f.write("      <styleUrl>#agriStyle</styleUrl>\n")
-            f.write("      <Polygon>\n")
-            f.write("        <outerBoundaryIs>\n")
-            f.write("          <LinearRing>\n")
-            f.write(f"            <coordinates>{coord_str}</coordinates>\n")
-            f.write("          </LinearRing>\n")
-            f.write("        </outerBoundaryIs>\n")
-            f.write("      </Polygon>\n")
-            f.write("    </Placemark>\n")
-            total_polys += 1
+    total_polys = 0
+    for p in poly_list:
+        coords = list(p.exterior.coords)
+        coord_str = " ".join(f"{lon},{lat},0" for lon, lat in coords)
+        pm = SubElement(doc, 'Placemark')
+        SubElement(pm, 'styleUrl').text = '#agriStyle'
+        poly_el = SubElement(pm, 'Polygon')
+        ob = SubElement(poly_el, 'outerBoundaryIs')
+        ring = SubElement(ob, 'LinearRing')
+        SubElement(ring, 'coordinates').text = coord_str
+        total_polys += 1
 
-        f.write("  </Document>\n</kml>\n")
-
-    print(f"{total_polys} agricultural polygons saved to {kml_path}")
+    if kml_path:
+        kml = Element('kml'); kml.set('xmlns','http://www.opengis.net/kml/2.2')
+        d2 = SubElement(kml, 'Document')
+        for el in list(doc):
+            d2.append(el)
+        xml = parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
+        with open(kml_path, 'wb') as f:
+            f.write(xml)
+        print(f"{total_polys} agricultural polygons saved to {kml_path}")
 
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)
 # -----------------------------------------------------------------------------
-def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
+def generate_candidate_kml(tile_name, row_idx, col_idx, outpath=None):
     tif_path = os.path.join(RAW_DATA_DIR, tile_name)
     if not os.path.exists(tif_path):
         print(f"WARNING: missing tile {tile_name}; skipping candidate KML.")
@@ -369,8 +368,7 @@ def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
     with rasterio.open(tif_path) as src:
         corners = get_pixel_corners(src, row_idx, col_idx)
 
-    kml = Element('kml', xmlns="http://www.opengis.net/kml/2.2")
-    doc = SubElement(kml, 'Document')
+    doc = Element('Document')
     style = SubElement(doc, 'Style', id="candidateStyle")
     ln = SubElement(style,'LineStyle'); SubElement(ln,'color').text="ff000000"; SubElement(ln,'width').text="2"
     ps = SubElement(style,'PolyStyle'); SubElement(ps,'fill').text="0"; SubElement(ps,'outline').text="1"
@@ -384,11 +382,15 @@ def generate_candidate_kml(tile_name, row_idx, col_idx, outpath):
     coords_str = " ".join(f"{x},{y},0" for x,y in corners)
     SubElement(ring, 'coordinates').text = coords_str
 
-    rough  = tostring(kml, encoding="utf-8")
-    pretty = parseString(rough).toprettyxml(indent="  ", encoding="utf-8")
-    with open(outpath, "wb") as f:
-        f.write(pretty)
-    print(f"Candidate KML => {outpath}")
+    if outpath:
+        kml = Element('kml', xmlns="http://www.opengis.net/kml/2.2")
+        d = SubElement(kml, 'Document')
+        for el in list(doc):
+            d.append(el)
+        xml = parseString(tostring(kml, encoding="utf-8")).toprettyxml(indent="  ", encoding="utf-8")
+        with open(outpath, "wb") as f:
+            f.write(xml)
+        print(f"Candidate KML => {outpath}")
 
 
 # -----------------------------------------------------------------------------

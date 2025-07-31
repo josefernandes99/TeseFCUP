@@ -1,18 +1,14 @@
 # scripts/ready_to_run_phase1.py
+import glob
+import json
+import os
+
 from a0_setup_check import setup_check
 from a1_phase1_data_download import download_data
-from a2_phase1_initial_labeling import (
-    initial_labeling,
-    check_label_requirements,
-    load_labels,
-)
+from a2_phase1_initial_labeling import initial_labeling
 from a4_phase1_active_learning_loop import active_learning_loop
 from a6_phase1_postprocessing import postprocessing
-from memory_watcher import start_memory_watcher
 from config import RAW_DATA_DIR, CHECKPOINT_FILE
-import glob
-import os
-import json
 
 STEP_ORDER = [
     "setup_check",
@@ -80,12 +76,7 @@ def main():
                     print("Raw data already present; skipping download.")
             elif step == "initial_labeling":
                 save_checkpoint(step)
-                ok, _, _ = check_label_requirements()
-                if not ok:
-                    initial_labeling()
-                else:
-                    total = len(load_labels())
-                    print(f"Found {total} labels meeting requirements; skipping initial labeling.")
+                initial_labeling()
             elif step == "active_learning_loop":
                 # Checkpoint inside loop via callback
                 def cb(r, nr, mc):

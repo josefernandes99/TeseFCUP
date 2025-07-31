@@ -9,8 +9,6 @@ from config import (
     DATA_DIR,
     RAW_DATA_DIR,
     TEMP_LABELS_FILE,
-    CANDIDATE_KML,
-    GRID_KML_DIR,
 )
 
 # Override problematic certificate environment variables.
@@ -63,22 +61,6 @@ def cleanup_previous_runs():
             print(f"Deleted overlay => {o}")
         except Exception as e:
             print(f"Failed to delete {o}: {e}")
-
-    # Delete candidate patch KML if present
-    cand_kml_path = CANDIDATE_KML
-    if os.path.exists(cand_kml_path):
-        try:
-            os.remove(cand_kml_path)
-            print(f"Deleted => {cand_kml_path}")
-        except Exception as e:
-            print(f"Failed to delete {cand_kml_path}: {e}")
-    if os.path.exists(GRID_KML_DIR):
-        for f in glob.glob(os.path.join(GRID_KML_DIR, "*.kml")):
-            try:
-                os.remove(f)
-                print(f"Deleted => {f}")
-            except Exception as e:
-                print(f"Failed to delete {f}: {e}")
 
 def setup_check():
     cleanup_previous_runs()

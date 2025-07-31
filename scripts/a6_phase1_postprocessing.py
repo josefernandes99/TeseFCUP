@@ -14,7 +14,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from memory_watcher import free_unused_memory
-from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, SIEVE_MIN_SIZE
+from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR
 
 # Note: small-patch filtering via rasterio.sieve is now performed during each
 # active learning round. The final postprocessing step simply runs the last
