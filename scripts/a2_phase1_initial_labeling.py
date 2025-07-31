@@ -12,7 +12,7 @@ from pyproj import Transformer
 
 from config import (
     LABELS_FILE, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
-    DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML,
+    DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML, GRID_KML_DIR,
     TEMP_LABELS_FILE
 )
 
@@ -51,8 +51,26 @@ def duplicate_exists(lat, lon, labels):
 
 
 def get_tile_for_coordinate(_lat, _lon):
+    """Return the tile filename that contains the given WGS84 coordinate.
+
+    If no tile covers the point, ``None`` is returned.  This replaces the
+    previous random selection which could associate labels with the wrong
+    tile once multiple images are present.
+    """
     files = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-    return os.path.basename(random.choice(files)) if files else "unknown"
+    for fp in files:
+        try:
+            with rasterio.open(fp) as src:
+                x, y = _lon, _lat
+                if src.crs and not src.crs.is_geographic:
+                    transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+                    x, y = transformer.transform(_lon, _lat)
+                b = src.bounds
+                if b.left <= x <= b.right and b.bottom <= y <= b.top:
+                    return os.path.basename(fp)
+        except Exception:
+            continue
+    return None
 
 def get_patch_dimensions():
     tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
@@ -111,6 +129,75 @@ def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, ou
     print(f"KML file generated at {dest}")
 
 
+def generate_grid_kml(tile_path, patch_width, patch_height, out_path):
+    """Create a grid overlay KML for the given tile.
+
+    ``patch_width`` and ``patch_height`` are in the same CRS units as the tile
+    itself (typically metres for UTM tiles).  The resulting file is written to
+    ``out_path``.
+    """
+    with rasterio.open(tile_path) as src:
+        res_x, res_y = abs(src.transform[0]), abs(src.transform[4])
+        width, height = src.width, src.height
+        patch_px = max(int(round(patch_width / res_x)), 1)
+        patch_py = max(int(round(patch_height / res_y)), 1)
+
+        transformer = None
+        if src.crs and not src.crs.is_geographic:
+            transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+
+        def to_lonlat(x, y):
+            if transformer:
+                x, y = transformer.transform(x, y)
+            return f"{x},{y},0"
+
+        kml = Element('kml'); kml.set('xmlns', 'http://www.opengis.net/kml/2.2')
+        doc = SubElement(kml, 'Document')
+        sp = SubElement(doc, 'Style', id='patchGrid')
+        ln1 = SubElement(sp, 'LineStyle'); SubElement(ln1, 'color').text = 'ff000000'; SubElement(ln1, 'width').text = '2'
+        si = SubElement(doc, 'Style', id='pixelGrid')
+        ln2 = SubElement(si, 'LineStyle'); SubElement(ln2, 'color').text = 'ff000000'; SubElement(ln2, 'width').text = '1'
+
+        def add_line(p0, p1, use_patch):
+            pm = SubElement(doc, 'Placemark')
+            SubElement(pm, 'styleUrl').text = '#patchGrid' if use_patch else '#pixelGrid'
+            ls = SubElement(pm, 'LineString')
+            SubElement(ls, 'coordinates').text = f"{to_lonlat(*p0)} {to_lonlat(*p1)}"
+
+        for c in range(0, width + 1):
+            p0 = src.xy(0, c, offset="ul")
+            p1 = src.xy(height, c, offset="ul")
+            add_line(p0, p1, c % patch_px == 0)
+
+        for r in range(0, height + 1):
+            p0 = src.xy(r, 0, offset="ul")
+            p1 = src.xy(r, width, offset="ul")
+            add_line(p0, p1, r % patch_py == 0)
+
+    xml = minidom.parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
+    with open(out_path, 'wb') as f:
+        f.write(xml)
+    print(f"Grid KML generated => {out_path}")
+
+
+def generate_grids_for_all_tiles():
+    """Ensure a grid KML exists for every raw tile."""
+    patch_w, patch_h = get_patch_dimensions()
+    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    if not tifs:
+        print(f"No raw tiles in {RAW_DATA_DIR}; skipping grid creation.")
+        return
+    for tp in tifs:
+        name = os.path.splitext(os.path.basename(tp))[0]
+        out = os.path.join(GRID_KML_DIR, f"{name}_grid.kml")
+        if os.path.exists(out):
+            continue
+        try:
+            generate_grid_kml(tp, patch_w, patch_h, out)
+        except Exception as e:
+            print(f"Failed to make grid for {tp}: {e}")
+
+
 # ——————— BALANCED SUBSET ———————
 
 def create_balanced_subset():
@@ -146,12 +233,21 @@ def manual_labeling(num_labels):
             print("Duplicate. Skip.")
             continue
         tile = get_tile_for_coordinate(lat, lon)
+        if not tile:
+            print("No tile for coordinate; skipping.")
+            continue
         lab  = "Agricultural"
         eid  = f"manual_{int(random.random()*1e6)}"
         with open(LABELS_FILE, "a", newline="") as f:
             csv.writer(f).writerow([eid, lat, lon, tile, lab])
         print(f"Added manual label at ({lat},{lon}).")
-        generate_kml_for_patch(lat, lon, w, h)
+        # convert to tile CRS for patch display
+        with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
+            x, y = lon, lat
+            if src.crs and not src.crs.is_geographic:
+                transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+                x, y = transformer.transform(lon, lat)
+        generate_kml_for_patch(y, x, w, h)
         labels.append({"lat":lat,"lon":lon,"tile":tile,"label":lab})
         added += 1
     return added
@@ -176,7 +272,17 @@ def global_sampling_labeling(num_patches):
     for _ in range(num_patches):
         lat = random.uniform(min(lats), max(lats))
         lon = random.uniform(min(lons), max(lons))
-        generate_kml_for_patch(lat, lon, w, h)
+        tile = get_tile_for_coordinate(lat, lon)
+        if not tile:
+            print("No tile for coordinate; skipping.")
+            continue
+        # convert to tile CRS for visualization
+        with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
+            x, y = lon, lat
+            if src.crs and not src.crs.is_geographic:
+                transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+                x, y = transformer.transform(lon, lat)
+        generate_kml_for_patch(y, x, w, h)
         print(f"Open KML {CANDIDATE_KML} to view patch.")
         ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
         if ui=="3":
@@ -185,7 +291,6 @@ def global_sampling_labeling(num_patches):
         if not lab:
             print("Invalid. Skip.")
             continue
-        tile = get_tile_for_coordinate(lat, lon)
         eid  = f"global_{int(random.random()*1e6)}"
         with open(LABELS_FILE, "a", newline="") as f:
             csv.writer(f).writerow([eid, lat, lon, tile, lab])
@@ -197,6 +302,7 @@ def global_sampling_labeling(num_patches):
 
 def initial_labeling():
     ensure_labels_file()
+    generate_grids_for_all_tiles()
 
     while True:
         ok, agri_cnt, ratio = check_label_requirements()

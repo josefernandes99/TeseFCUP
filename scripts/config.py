@@ -19,6 +19,9 @@ for folder in [RAW_DATA_DIR, ROUNDS_DIR, LABELS_DIR, MODELS_DIR]:
 LABELS_FILE = os.path.join(LABELS_DIR, "labels.csv")
 TEMP_LABELS_FILE = os.path.join(LABELS_DIR, "temp_labels.csv")
 CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
+GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
+if not os.path.exists(GRID_KML_DIR):
+    os.makedirs(GRID_KML_DIR, exist_ok=True)
 
 # --------------------------
 # DATA DOWNLOAD CONFIGURATION (GEE)
@@ -37,8 +40,8 @@ INDICES = ["NDVI", "EVI", "EVI2", "NBR", "NDMI", "ELEVATION", "SLOPE", "ASPECT"]
 # INITIAL LABELING CONFIG
 # --------------------------
 MIN_AGRI_COUNT = 10
-MIN_AGRI_RATIO = 0.20
-MAX_AGRI_RATIO = 0.30
+MIN_AGRI_RATIO = 0
+MAX_AGRI_RATIO = 1
 DUPLICATE_TOLERANCE = 0.0001
 
 # --------------------------
@@ -46,6 +49,12 @@ DUPLICATE_TOLERANCE = 0.0001
 # --------------------------
 SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest"]
 SVM_PARAMS = {"C": 1.0, "kernel": "rbf", "gamma": "scale"}
+# Optional grid search for the SVM. If enabled, ``train_model`` will run
+# ``GridSearchCV`` over these ranges and ignore ``SVM_PARAMS`` values for ``C``
+# and ``gamma``.
+SVM_USE_GRID = False
+SVM_C_RANGE = [0.1, 1.0, 10.0]
+SVM_GAMMA_RANGE = ["scale", "auto"]
 RF_PARAMS = {"n_estimators": 100, "max_depth": 8}
 NUM_CANDIDATES_PER_ROUND = 5
 CANDIDATE_PROB_LOWER = 0.4
