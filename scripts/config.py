@@ -63,12 +63,12 @@ SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest"]
 SVM_PARAMS = {"C": 1.0, "kernel": "rbf", "gamma": "scale"}
 RF_PARAMS = {"n_estimators": 100, "max_depth": 8}
 NUM_CANDIDATES_PER_ROUND = 25
-CANDIDATE_PROB_LOWER = 0.4
-CANDIDATE_PROB_UPPER = 0.6
+CANDIDATE_PROB_LOWER = 0.3
+CANDIDATE_PROB_UPPER = 0.5
 RESNET_EPOCHS = 10
 RESNET_LR = 0.001
 BATCH_SIZE = 32
-MIN_AGRI_PROB = 0.5
+MIN_AGRI_PROB = 0.4
 NUM_RANDOM_PICKS_PER_TILE = 5
 
 # --------------------------

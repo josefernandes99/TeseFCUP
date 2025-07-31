@@ -35,7 +35,6 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from sklearn.svm import SVC
-from sklearn.model_selection import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import StandardScaler
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -51,9 +50,6 @@ from config import (
     MIN_AGRI_PROB,
     SIEVE_MIN_SIZE,
     SVM_PARAMS,
-    SVM_USE_GRID,
-    SVM_C_RANGE,
-    SVM_GAMMA_RANGE,
     RF_PARAMS,
     RESNET_EPOCHS,
     RESNET_LR,
@@ -204,16 +200,9 @@ def train_model(choice, X, y):
         scaler = StandardScaler().fit(X)
         Xs = scaler.transform(X)
         base_params = {k: v for k, v in SVM_PARAMS.items() if k not in ("C", "gamma")}
-        if SVM_USE_GRID:
-            grid = {"C": SVM_C_RANGE, "gamma": SVM_GAMMA_RANGE}
-            svc = SVC(probability=True, **base_params)
-            search = GridSearchCV(svc, grid, n_jobs=-1)
-            search.fit(Xs, y)
-            clf = search.best_estimator_
-        else:
-            params = SVM_PARAMS.copy()
-            clf = SVC(probability=True, **params)
-            clf.fit(Xs, y)
+        params = SVM_PARAMS.copy()
+        clf = SVC(probability=True, **params)
+        clf.fit(Xs, y)
         return SklearnWrapper(clf, feat_means, feat_std, scaler)
 
     elif c == "randomforest":
