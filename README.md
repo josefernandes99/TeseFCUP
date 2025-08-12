@@ -8,9 +8,13 @@ The repository also contains an older, experimental segmentation workflow under 
 
 - Automated download of Sentinel‑2 tiles covering your region of interest
 - Interactive labeling of image patches to build an initial training set
+- Optional **notes** field stored with every label (chosen from predefined options)
 - Active learning loop that trains a model (ResNet, SVM or RandomForest) and suggests new candidate patches for labeling
 - Post‑processing step that classifies all tiles and produces cleaned overlay rasters along with CSV and text summaries
+- Evaluation utilities that compute precision/recall/F1 and other metrics on a separate validation set
+- Basic hyper‑parameter grid search for SVM and RandomForest models
 - Automatic memory watcher that frees unused resources during processing
+- Automatic KML snapshot of all labels for viewing in Google Earth
 ## Repository Layout
 
 ```
@@ -74,3 +78,7 @@ pipeline finishes.
 
 - The archived `scripts/backup (old)` folder contains a previous, more complex pipeline that handled high‑resolution imagery and segmentation. It is not actively maintained but may be useful for reference.
 - The repository comes with a small example tile in `data/phase1/raw/` so you can try the code without downloading large datasets first.
+- Sentinel‑2 tiles are typically in UTM coordinates whereas the CSV labels are
+  stored in WGS 84. Functions that sample pixel values automatically convert the
+  coordinates; if you reproject the tiles to WGS 84 beforehand, this conversion
+  is skipped.

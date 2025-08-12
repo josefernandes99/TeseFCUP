@@ -5,9 +5,10 @@ import os
 
 from a0_setup_check import setup_check
 from a1_phase1_data_download import download_data
-from a2_phase1_initial_labeling import initial_labeling
-from a4_phase1_active_learning_loop import active_learning_loop
+from a2_phase1_initial_labeling import initial_labeling, ensure_labels_file
+from a4_phase1_active_learning_loop import active_learning_loop, collect_user_hyperparams
 from a6_phase1_postprocessing import postprocessing
+from grid_search import run_grid_search
 from config import RAW_DATA_DIR, CHECKPOINT_FILE
 
 STEP_ORDER = [
@@ -42,6 +43,7 @@ def clear_checkpoint():
 
 def main():
     print("=== Starting PythonProject Pipeline ===\n")
+    ensure_labels_file()
     mw = None
     try:
         cp = load_checkpoint()
@@ -78,11 +80,37 @@ def main():
                 save_checkpoint(step)
                 initial_labeling()
             elif step == "active_learning_loop":
-                # Checkpoint inside loop via callback
-                def cb(r, nr, mc):
-                    save_checkpoint("active_learning_loop", round=r, total_rounds=nr, model_choice=mc)
-
-                active_learning_loop(al_start_round, al_total_rounds, al_model_choice, checkpoint_cb=cb)
+                save_checkpoint(step)
+                mode = input("Hyper-parameter mode: [1] grid search, [2] specify => ").strip()
+                if mode == "1":
+                    print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
+                    models = ["ResNet", "SVM", "RandomForest"]
+                    ch = input("=> ").strip()
+                    mchoice = models[int(ch) - 1] if ch in ["1", "2", "3"] else "RandomForest"
+                    run_grid_search(mchoice)
+                    clear_checkpoint()
+                    return
+                else:
+                    def cb(r, nr, mc):
+                        save_checkpoint("active_learning_loop", round=r, total_rounds=nr, model_choice=mc)
+                    mchoice = al_model_choice
+                    if mchoice is None:
+                        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
+                        models = ["ResNet", "SVM", "RandomForest"]
+                        ch = input("=> ").strip()
+                        if ch in ["1", "2", "3"]:
+                            mchoice = models[int(ch) - 1]
+                        else:
+                            mchoice = "RandomForest"
+                    params = collect_user_hyperparams(mchoice)
+                    active_learning_loop(
+                        al_start_round,
+                        al_total_rounds,
+                        mchoice,
+                        checkpoint_cb=cb,
+                        use_grid_search=False,
+                        user_params=params,
+                    )
             elif step == "postprocessing":
                 save_checkpoint(step)
                 postprocessing()

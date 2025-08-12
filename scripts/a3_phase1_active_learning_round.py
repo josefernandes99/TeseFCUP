@@ -44,18 +44,12 @@ from config import (
     RAW_DATA_DIR,
     ROUNDS_DIR,
     TEMP_LABELS_FILE,
-    NUM_CANDIDATES_PER_ROUND,
-    CANDIDATE_PROB_LOWER,
-    CANDIDATE_PROB_UPPER,
-    MIN_AGRI_PROB,
-    SIEVE_MIN_SIZE,
-    SVM_PARAMS,
-    RF_PARAMS,
     RESNET_EPOCHS,
     RESNET_LR,
     BATCH_SIZE,
-    # ["NDVI","EVI","EVI2"]
+    NOTE_OPTIONS,
 )
+import config as cfg
 
 from a2_phase1_initial_labeling import generate_grids_for_all_tiles
 
@@ -63,8 +57,26 @@ from a2_phase1_initial_labeling import generate_grids_for_all_tiles
 # -----------------------------------------------------------------------------
 # 2) Feature‐extraction helper (unchanged—reads all bands including indices)
 # -----------------------------------------------------------------------------
+def prompt_note():
+    """Prompt user to select one of the predefined note options."""
+    print("notes options:")
+    for idx, opt in enumerate(NOTE_OPTIONS, 1):
+        print(f" {idx}. {opt}")
+    choice = input("Select note [1-9]: ").strip()
+    if choice.isdigit() and 1 <= int(choice) <= len(NOTE_OPTIONS):
+        return NOTE_OPTIONS[int(choice) - 1]
+    print("Invalid choice; using 'Other'.")
+    return NOTE_OPTIONS[-1]
+
 def extract_features_from_label(row):
-    """Read pixel values at the label coordinate, converting from WGS84."""
+    """Read pixel values at the label coordinate.
+
+    Sentinel-2 tiles are typically stored in a projected UTM coordinate
+    reference system while label coordinates are assumed to be WGS84
+    (latitude/longitude).  The function therefore converts from WGS84 to the
+    tile CRS prior to sampling.  If tiles have been reprojected to WGS84 during
+    download (user provided flag), the conversion becomes a no-op.
+    """
     lat, lon = float(row["lat"]), float(row["lon"])
     tif_path = os.path.join(RAW_DATA_DIR, row["tile"])
     if not os.path.exists(tif_path):
@@ -199,14 +211,14 @@ def train_model(choice, X, y):
         # StandardScaler for true zero-mean/unit-variance
         scaler = StandardScaler().fit(X)
         Xs = scaler.transform(X)
-        base_params = {k: v for k, v in SVM_PARAMS.items() if k not in ("C", "gamma")}
-        params = SVM_PARAMS.copy()
+        base_params = {k: v for k, v in cfg.SVM_PARAMS.items() if k not in ("C", "gamma")}
+        params = cfg.SVM_PARAMS.copy()
         clf = SVC(probability=True, **params)
         clf.fit(Xs, y)
         return SklearnWrapper(clf, feat_means, feat_std, scaler)
 
     elif c == "randomforest":
-        rf = RandomForestClassifier(n_jobs=-1, **RF_PARAMS)
+        rf = RandomForestClassifier(n_jobs=-1, **cfg.RF_PARAMS)
         rf.fit(X, y)
         # we will z‐score scale at inference for consistency
         return SklearnWrapper(rf, feat_means, feat_std, scaler=None)
@@ -292,14 +304,23 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
             b, H, W = arr.shape
             X = arr.reshape(b, -1).T
             probs = model.predict_proba(X)[:, 1].reshape(H, W)
-            mask = (probs >= MIN_AGRI_PROB).astype("uint8")
-            if SIEVE_MIN_SIZE > 0:
-                mask = sieve(mask, size=SIEVE_MIN_SIZE, connectivity=8)
+            crop = probs >= cfg.MIN_AGRI_PROB
+            uncertain = (probs >= cfg.CANDIDATE_PROB_LOWER) & (probs < cfg.MIN_AGRI_PROB)
+            mask = crop | uncertain
+            from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
+            mask = binary_fill_holes(binary_closing(mask))
+            lbl, num = ndlabel(mask)
+            for i in range(1, num+1):
+                comp = (lbl==i)
+                if not np.any(crop[comp]):
+                    mask[comp] = False
+            if cfg.SIEVE_MIN_SIZE > 0:
+                mask = sieve(mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
             transformer = None
             if src.crs and not src.crs.is_geographic:
                 transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
 
-            for geom, val in shapes(mask, mask=mask, transform=src.transform):
+            for geom, val in shapes(mask.astype("uint8"), mask=mask, transform=src.transform):
                 if val != 1:
                     continue
                 poly = shape(geom)
@@ -308,7 +329,7 @@ def save_agricultural_polygons_kml(round_folder, model, round_num):
                 polys.append(poly)
 
     if not polys:
-        print(f"⚠️  No polygons (all probs < {MIN_AGRI_PROB})")
+        print(f"⚠️  No polygons (all probs < {cfg.MIN_AGRI_PROB})")
         return
 
     merged = unary_union(polys)
@@ -385,7 +406,14 @@ def generate_candidate_kml(tile_name, row_idx, col_idx, outpath=None):
 # -----------------------------------------------------------------------------
 # 7) Active‐Learning orchestration (unchanged aside from new train_model)
 # -----------------------------------------------------------------------------
-def active_learning_round(round_num, labels_file, model_choice, request_labels=True):
+def active_learning_round(
+    round_num,
+    labels_file,
+    model_choice,
+    request_labels=True,
+    out_dir=None,
+    save_preds=True,
+):
     """Run one active learning round.
 
     Parameters
@@ -399,9 +427,12 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
     request_labels : bool, optional
         If False, skip the candidate selection/labeling step. This is used for
         the final round so the user isn't prompted for more labels.
+    out_dir : str, optional
+        Directory to write round outputs to. If None, defaults to
+        ``ROUNDS_DIR/round_<round_num>``.
     """
     print(f"\n=== Starting Active Learning Round {round_num} ===")
-    rnd_dir = os.path.join(ROUNDS_DIR, f"round_{round_num}")
+    rnd_dir = out_dir or os.path.join(ROUNDS_DIR, f"round_{round_num}")
     os.makedirs(rnd_dir, exist_ok=True)
     generate_grids_for_all_tiles()
 
@@ -456,67 +487,107 @@ def active_learning_round(round_num, labels_file, model_choice, request_labels=T
     print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
 
     # outputs
-    save_predictions(rnd_dir, preds)
+    if save_preds:
+        save_predictions(rnd_dir, preds)
+    else:
+        print("Skipping predictions.csv generation.")
     save_agricultural_polygons_kml(rnd_dir, model, round_num)
 
-    if not request_labels:
+    if not request_labels or not save_preds:
         print(f"Round {round_num} complete (no candidate labeling).")
         return None
 
-    # candidate selection
-    unc = [p for p in preds if CANDIDATE_PROB_LOWER <= p[5] <= CANDIDATE_PROB_UPPER]
-    if len(unc) < NUM_CANDIDATES_PER_ROUND:
-        preds.sort(key=lambda r: abs(r[5]-0.5))
-        cands = preds[:NUM_CANDIDATES_PER_ROUND]
-    else:
-        # group uncertain predictions by tile
-        by_tile = defaultdict(list)
-        for entry in unc:
-            by_tile[entry[0]].append(entry)
+    tmp = candidate_selection_from_csv(os.path.join(rnd_dir, "predictions.csv"), rnd_dir, round_num)
+    print(f"Round {round_num} complete; labels at {tmp}")
+    return tmp
 
-        tiles = list(by_tile.keys())
-        random.shuffle(tiles)
-        per_tile = NUM_CANDIDATES_PER_ROUND // len(tiles)
-        remainder = NUM_CANDIDATES_PER_ROUND % len(tiles)
 
+def candidate_selection_from_csv(pred_csv, round_dir, round_num):
+    """Load predictions from CSV and prompt the user to label candidates."""
+    if not os.path.exists(pred_csv):
+        print(f"Missing predictions CSV => {pred_csv}")
+        return None
+    preds = []
+    with open(pred_csv, "r") as pf:
+        rd = csv.reader(pf)
+        next(rd, None)
+        for row in rd:
+            preds.append([row[0], int(row[1]), int(row[2]), float(row[3]), float(row[4]), float(row[5])])
+
+    def select_candidates_entropy(predictions):
+        import numpy as np
+        from sklearn.cluster import DBSCAN
+
+        probs = np.array([p[5] for p in predictions])
+        lats = np.array([p[3] for p in predictions])
+        lons = np.array([p[4] for p in predictions])
+        entropy = -probs*np.log(probs + 1e-9) - (1 - probs)*np.log(1 - probs + 1e-9)
+        margin = np.abs(probs - 0.5)
+        score = entropy - margin
+        pool_idx = np.argsort(score)[::-1][:cfg.NUM_CANDIDATES_PER_ROUND * 5]
+        if pool_idx.size == 0:
+            return []
+        coords = np.vstack([lats[pool_idx], lons[pool_idx]]).T
+        clustering = DBSCAN(eps=0.01, min_samples=1).fit(coords)
         cands = []
-        leftovers = []
-        for i, tile in enumerate(tiles):
-            random.shuffle(by_tile[tile])
-            target = per_tile + (1 if i < remainder else 0)
-            selected = by_tile[tile][:target]
-            cands.extend(selected)
-            leftovers.extend(by_tile[tile][len(selected):])
+        for lbl in set(clustering.labels_):
+            idxs = pool_idx[clustering.labels_ == lbl]
+            idxs = idxs[np.argsort(score[idxs])[::-1]]
+            for i in range(min(2, len(idxs))):
+                cands.append(predictions[int(idxs[i])])
+                if len(cands) >= cfg.NUM_CANDIDATES_PER_ROUND:
+                    break
+            if len(cands) >= cfg.NUM_CANDIDATES_PER_ROUND:
+                break
+        return cands
 
-        random.shuffle(leftovers)
-        while len(cands) < NUM_CANDIDATES_PER_ROUND and leftovers:
-            cands.append(leftovers.pop())
+    cands = select_candidates_entropy(preds)
+    if len(cands) < cfg.NUM_CANDIDATES_PER_ROUND:
+        unc = [p for p in preds if cfg.CANDIDATE_PROB_LOWER <= p[5] <= cfg.CANDIDATE_PROB_UPPER]
+        if len(unc) < cfg.NUM_CANDIDATES_PER_ROUND:
+            preds.sort(key=lambda r: abs(r[5] - 0.5))
+            cands = preds[:cfg.NUM_CANDIDATES_PER_ROUND]
+        else:
+            by_tile = defaultdict(list)
+            for entry in unc:
+                by_tile[entry[0]].append(entry)
+            tiles = list(by_tile.keys())
+            random.shuffle(tiles)
+            per_tile = cfg.NUM_CANDIDATES_PER_ROUND // len(tiles)
+            remainder = cfg.NUM_CANDIDATES_PER_ROUND % len(tiles)
+            cands = []
+            leftovers = []
+            for i, tile in enumerate(tiles):
+                random.shuffle(by_tile[tile])
+                target = per_tile + (1 if i < remainder else 0)
+                selected = by_tile[tile][:target]
+                cands.extend(selected)
+                leftovers.extend(by_tile[tile][len(selected):])
+            random.shuffle(leftovers)
+            while len(cands) < cfg.NUM_CANDIDATES_PER_ROUND and leftovers:
+                cands.append(leftovers.pop())
+
     print(f"{len(cands)} candidate patches selected")
 
-    tmp = os.path.join(rnd_dir, "temp_labels.csv")
+    tmp = os.path.join(round_dir, "temp_labels.csv")
     with open(tmp, "w", newline="") as f:
         w = csv.writer(f)
-        # Column order matches the master labels CSV
-        w.writerow(["id", "lat", "lon", "tile", "label"])
-    for t, r, c, la, lo, p in cands:
-        sub = os.path.join(ROUNDS_DIR, f"round_{t}")
-        if not os.path.isdir(sub):
-            sub = os.path.join(ROUNDS_DIR, "round_temp_candidates")
-            os.makedirs(sub, exist_ok=True)
-        kmlp = os.path.join(sub, "candidate_patch.kml")
+        w.writerow(["id", "lat", "lon", "tile", "label", "notes"])
+    for idx, (t, r, c, la, lo, p) in enumerate(cands):
+        kmlp = os.path.join(round_dir, f"candidate_{idx}.kml")
         generate_candidate_kml(t, r, c, kmlp)
         print(f"Candidate: {t} r={r},c={c}, p={p:.3f}")
         ui = input("Label? (1=Agri,2=NonAgri,3=Skip): ").strip()
-        if ui=="3":
+        if ui == "3":
             print("Skipped.")
             continue
-        lab = "Agricultural" if ui=="1" else "Non-Agricultural" if ui=="2" else None
+        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if lab:
+            note = prompt_note()
             eid = f"AL_{round_num}_{int(random.random()*1e6)}"
             with open(tmp, "a", newline="") as f2:
-                csv.writer(f2).writerow([eid, la, lo, t, lab])
+                csv.writer(f2).writerow([eid, la, lo, t, lab, note])
             print("Label saved.")
-    print(f"Round {round_num} complete; labels at {tmp}")
     return tmp
 
 

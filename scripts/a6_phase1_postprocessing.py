@@ -14,7 +14,9 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from memory_watcher import free_unused_memory
-from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR
+from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, MIN_AGRI_PROB, CANDIDATE_PROB_LOWER, SIEVE_MIN_SIZE
+from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
+from rasterio.features import sieve
 
 # Note: small-patch filtering via rasterio.sieve is now performed during each
 # active learning round. The final postprocessing step simply runs the last
@@ -51,15 +53,23 @@ def classify_tile(tile_path, model):
     Returns the single‐band prediction array and original profile.
     """
     with rasterio.open(tile_path) as src:
-        img = src.read()                 # shape: (bands, height, width)
+        img = src.read().astype(np.float32)                 # shape: (bands, height, width)
         b, h, w = img.shape
-        # reshape to (n_pixels, bands)
         X = img.reshape(b, -1).T        # (h*w, bands)
-        # predict all at once
-        preds = model.predict(X)        # array of length h*w, values ∈ {0,1}
-        pimg = preds.reshape(h, w).astype(np.uint8)
-
-        return pimg, src.profile
+        probs = model.predict_proba(X)[:,1].reshape(h, w)
+        crop = probs >= MIN_AGRI_PROB
+        uncertain = (probs >= CANDIDATE_PROB_LOWER) & (probs < MIN_AGRI_PROB)
+        mask = crop | uncertain
+        mask = binary_fill_holes(binary_closing(mask))
+        lbl, num = ndlabel(mask)
+        for i in range(1, num+1):
+            comp = (lbl==i)
+            if not np.any(crop[comp]):
+                mask[comp] = False
+        if SIEVE_MIN_SIZE > 0:
+            mask = sieve(mask.astype("uint8"), size=SIEVE_MIN_SIZE, connectivity=8).astype(bool)
+        cleaned = (mask & (probs >= MIN_AGRI_PROB)).astype(np.uint8)
+        return cleaned, src.profile
 
 def save_geotiff(path_out, data, profile):
     profile.update(

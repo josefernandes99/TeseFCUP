@@ -11,17 +11,29 @@ import rasterio
 from pyproj import Transformer
 
 from config import (
-    LABELS_FILE, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
+    LABELS_FILE, LABELS_KML, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML, GRID_KML_DIR,
-    TEMP_LABELS_FILE, ROI_COORDS
+    TEMP_LABELS_FILE, ROI_COORDS, EVALUATE_FILE, NOTE_OPTIONS
 )
 
 def ensure_labels_file():
     os.makedirs(os.path.dirname(LABELS_FILE), exist_ok=True)
     if not os.path.exists(LABELS_FILE):
+        # ``notes`` column added so users can attach free form comments to any
+        # label.  Downstream code simply ignores the column if present.
         with open(LABELS_FILE, "w", newline="") as f:
-            csv.writer(f).writerow(["id", "lat", "lon", "tile", "label"])
+            csv.writer(f).writerow(["id", "lat", "lon", "tile", "label", "notes"])
         print("Created new master labels CSV.")
+    export_labels_kml()
+
+
+def ensure_evaluate_file():
+    """Create evaluation CSV with notes column if it does not yet exist."""
+    os.makedirs(os.path.dirname(EVALUATE_FILE), exist_ok=True)
+    if not os.path.exists(EVALUATE_FILE):
+        with open(EVALUATE_FILE, "w", newline="") as f:
+            csv.writer(f).writerow(["id", "lat", "lon", "tile", "label", "notes"])
+        print("Created new evaluation CSV.")
 
 
 def load_labels(path=LABELS_FILE):
@@ -29,6 +41,64 @@ def load_labels(path=LABELS_FILE):
         return []
     with open(path) as f:
         return list(csv.DictReader(f))
+
+
+def export_labels_kml(path=LABELS_FILE, out_path=LABELS_KML):
+    """Export all labels to a KML with point markers for Google Earth."""
+    labels = load_labels(path)
+    doc = minidom.Document()
+    kml = doc.createElement("kml")
+    kml.setAttribute("xmlns", "http://www.opengis.net/kml/2.2")
+    doc.appendChild(kml)
+    d = doc.createElement("Document")
+    kml.appendChild(d)
+    # Define styles for colored pins without visible labels
+    style_agri = doc.createElement("Style"); style_agri.setAttribute("id", "agri")
+    icon_agri = doc.createElement("IconStyle")
+    color_agri = doc.createElement("color")
+    color_agri.appendChild(doc.createTextNode("ff00ff00"))  # green
+    icon_agri.appendChild(color_agri)
+    label_agri = doc.createElement("LabelStyle")
+    scale_agri = doc.createElement("scale"); scale_agri.appendChild(doc.createTextNode("0"))
+    label_agri.appendChild(scale_agri)
+    style_agri.appendChild(icon_agri); style_agri.appendChild(label_agri)
+    d.appendChild(style_agri)
+
+    style_non = doc.createElement("Style"); style_non.setAttribute("id", "nonagri")
+    icon_non = doc.createElement("IconStyle")
+    color_non = doc.createElement("color")
+    color_non.appendChild(doc.createTextNode("ff0000ff"))  # red
+    icon_non.appendChild(color_non)
+    label_non = doc.createElement("LabelStyle")
+    scale_non = doc.createElement("scale"); scale_non.appendChild(doc.createTextNode("0"))
+    label_non.appendChild(scale_non)
+    style_non.appendChild(icon_non); style_non.appendChild(label_non)
+    d.appendChild(style_non)
+
+    for r in labels:
+        pm = doc.createElement("Placemark")
+        # Add the note as the placemark name so it is available when clicking the
+        # pin, but keep the on-map label hidden via LabelStyle scale=0.
+        name_el = doc.createElement("name")
+        name_el.appendChild(doc.createTextNode(r.get("notes", "")))
+        pm.appendChild(name_el)
+
+        style = doc.createElement("styleUrl")
+        if r.get("label", "").lower() == "agricultural":
+            style.appendChild(doc.createTextNode("#agri"))
+        else:
+            style.appendChild(doc.createTextNode("#nonagri"))
+        pm.appendChild(style)
+
+        pt = doc.createElement("Point")
+        coords = doc.createElement("coordinates")
+        coords.appendChild(doc.createTextNode(f"{r.get('lon')},{r.get('lat')},0"))
+        pt.appendChild(coords)
+        pm.appendChild(pt)
+        d.appendChild(pm)
+    with open(out_path, "w") as f:
+        f.write(doc.toprettyxml(indent="  "))
+    print(f"Exported {len(labels)} labels to KML => {out_path}")
 
 
 def check_label_requirements():
@@ -48,6 +118,18 @@ def duplicate_exists(lat, lon, labels):
         except:
             continue
     return False
+
+
+def prompt_note():
+    """Prompt user to choose a predefined note option."""
+    print("notes options:")
+    for idx, opt in enumerate(NOTE_OPTIONS, 1):
+        print(f" {idx}. {opt}")
+    choice = input("Select note [1-9]: ").strip()
+    if choice.isdigit() and 1 <= int(choice) <= len(NOTE_OPTIONS):
+        return NOTE_OPTIONS[int(choice) - 1]
+    print("Invalid choice; using 'Other'.")
+    return NOTE_OPTIONS[-1]
 
 
 def get_tile_for_coordinate(_lat, _lon):
@@ -275,11 +357,21 @@ def manual_labeling(num_labels):
         if not tile:
             print("No tile for coordinate; skipping.")
             continue
-        lab  = "Agricultural"
+        print("Label? (1=Agri,2=Non,3=Skip)")
+        ui = input("=> ").strip()
+        if ui == "3":
+            continue
+        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
+        if not lab:
+            print("Invalid label. Skip.")
+            continue
         eid  = f"manual_{int(random.random()*1e6)}"
+        note = prompt_note()
         with open(LABELS_FILE, "a", newline="") as f:
-            csv.writer(f).writerow([eid, lat, lon, tile, lab])
+            csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
         print(f"Added manual label at ({lat},{lon}).")
+        labels.append({"lat":lat,"lon":lon,"tile":tile,"label":lab,"notes":note})
+        export_labels_kml()
         # convert to tile CRS for patch display
         with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
             x, y = lon, lat
@@ -287,8 +379,8 @@ def manual_labeling(num_labels):
                 transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
                 x, y = transformer.transform(lon, lat)
         generate_kml_for_patch(y, x, w, h)
-        labels.append({"lat":lat,"lon":lon,"tile":tile,"label":lab})
         added += 1
+    export_labels_kml()
     return added
 
 
@@ -321,11 +413,68 @@ def global_sampling_labeling(num_patches):
             print("Invalid. Skip.")
             continue
         eid  = f"global_{int(random.random()*1e6)}"
+        note = prompt_note()
         with open(LABELS_FILE, "a", newline="") as f:
-            csv.writer(f).writerow([eid, lat, lon, tile, lab])
+            csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
         print(f"Added global label at ({lat},{lon}).")
+        export_labels_kml()
         added += 1
+    export_labels_kml()
     return added
+
+
+def create_evaluation_labels():
+    """Prompt the user to manually create an evaluation set of 100 labels
+    (25 agricultural / 75 non-agricultural).  Duplicates with existing labels
+    are not allowed.  Labels are stored in ``evaluate.csv``.
+    """
+    ensure_evaluate_file()
+    eval_labels = load_labels(EVALUATE_FILE)
+    master_labels = load_labels(LABELS_FILE)
+    existing = eval_labels + master_labels
+    agri = sum(1 for r in eval_labels if r["label"].lower() == "agricultural")
+    non  = sum(1 for r in eval_labels if r["label"].lower() != "agricultural")
+    target_agri, target_non = 25, 75
+    while agri < target_agri or non < target_non:
+        try:
+            lat = float(input("Enter latitude: "))
+            lon = float(input("Enter longitude: "))
+        except ValueError:
+            print("Invalid. Skip.")
+            continue
+        if duplicate_exists(lat, lon, existing):
+            print("Duplicate label. Skip.")
+            continue
+        tile = get_tile_for_coordinate(lat, lon)
+        if not tile:
+            print("No tile for coordinate; skipping.")
+            continue
+        print("Label? (1=Agri,2=Non,3=Skip)")
+        ui = input("=> ").strip()
+        if ui == "3":
+            continue
+        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
+        if lab is None:
+            print("Invalid label; skipping.")
+            continue
+        # enforce ratio
+        if lab == "Agricultural" and agri >= target_agri:
+            print("Already have required agricultural samples; choose non-agricultural.")
+            continue
+        if lab != "Agricultural" and non >= target_non:
+            print("Already have required non-agricultural samples; choose agricultural.")
+            continue
+        note = prompt_note()
+        eid = f"eval_{int(random.random()*1e6)}"
+        with open(EVALUATE_FILE, "a", newline="") as f:
+            csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
+        existing.append({"lat": lat, "lon": lon})
+        if lab == "Agricultural":
+            agri += 1
+        else:
+            non += 1
+        print(f"Evaluation label added. Totals → Agri:{agri}/25 Non:{non}/75")
+    print(f"Evaluation labeling complete → {EVALUATE_FILE}")
 
 # ——————— INITIAL LABELING LOOP ———————
 
@@ -344,15 +493,20 @@ def initial_labeling():
                 bal = create_balanced_subset()
                 with open(TEMP_LABELS_FILE,"w",newline="") as f:
                     w = csv.writer(f)
-                    w.writerow(["id","lat","lon","tile","label"])
+                    # keep notes column for compatibility
+                    w.writerow(["id","lat","lon","tile","label","notes"])
                     for r in bal:
-                        w.writerow([r["id"], r["lat"], r["lon"], r["tile"], r["label"]])
+                        w.writerow([r.get("id"), r.get("lat"), r.get("lon"), r.get("tile"), r.get("label"), r.get("notes", "")])
                 print(f"Balanced subset → {TEMP_LABELS_FILE}. Proceed to training.")
                 break
 
         if ok:
-            if input("[1] Label more or [2] Train? => ").strip() == "2":
+            choice = input("[1] Label more, [2] Train, [3] Create Evaluation Labels? => ").strip()
+            if choice == "2":
                 break
+            if choice == "3":
+                create_evaluation_labels()
+                continue
             try:
                 n = int(input("How many to label? "))
             except Exception:

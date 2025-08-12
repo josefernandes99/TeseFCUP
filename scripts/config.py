@@ -18,8 +18,11 @@ for folder in [RAW_DATA_DIR, ROUNDS_DIR, LABELS_DIR, MODELS_DIR]:
 
 LABELS_FILE = os.path.join(LABELS_DIR, "labels.csv")
 TEMP_LABELS_FILE = os.path.join(LABELS_DIR, "temp_labels.csv")
+LABELS_KML = os.path.join(LABELS_DIR, "labels.kml")
 CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
 GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
+# Optional evaluation labels used for model assessment
+EVALUATE_FILE = os.path.join(LABELS_DIR, "evaluate.csv")
 if not os.path.exists(GRID_KML_DIR):
     os.makedirs(GRID_KML_DIR, exist_ok=True)
 
@@ -63,15 +66,30 @@ SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest"]
 SVM_PARAMS = {"C": 1.0, "kernel": "rbf", "gamma": "scale"}
 RF_PARAMS = {"n_estimators": 100, "max_depth": 8}
 NUM_CANDIDATES_PER_ROUND = 25
-CANDIDATE_PROB_LOWER = 0.3
-CANDIDATE_PROB_UPPER = 0.5
+CANDIDATE_PROB_LOWER = 0.4
+CANDIDATE_PROB_UPPER = 0.6
 RESNET_EPOCHS = 10
 RESNET_LR = 0.001
 BATCH_SIZE = 32
-MIN_AGRI_PROB = 0.4
+MIN_AGRI_PROB = 0.5
 NUM_RANDOM_PICKS_PER_TILE = 5
 
 # --------------------------
 # POSTPROCESSING CONFIG
 # --------------------------
 SIEVE_MIN_SIZE = 5
+
+# --------------------------
+# LABEL NOTES OPTIONS
+# --------------------------
+NOTE_OPTIONS = [
+    "Agricultural Crop Center",
+    "Agricultural Crop Border",
+    "Agricultural Crop Doubtful",
+    "Open Field, No Vegetation",
+    "Open Field, Vegetation",
+    "Tree/Bush",
+    "Building / Man Made",
+    "Water Bodies",
+    "Other",
+]
