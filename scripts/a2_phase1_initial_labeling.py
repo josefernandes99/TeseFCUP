@@ -13,7 +13,7 @@ from pyproj import Transformer
 from config import (
     LABELS_FILE, LABELS_KML, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML, GRID_KML_DIR,
-    TEMP_LABELS_FILE, ROI_COORDS, EVALUATE_FILE, NOTE_OPTIONS
+    TEMP_LABELS_FILE, ROI_COORDS, EVALUATE_FILE, NOTE_OPTIONS, EVALUATE_KML
 )
 
 def ensure_labels_file():
@@ -34,7 +34,7 @@ def ensure_evaluate_file():
         with open(EVALUATE_FILE, "w", newline="") as f:
             csv.writer(f).writerow(["id", "lat", "lon", "tile", "label", "notes"])
         print("Created new evaluation CSV.")
-
+    export_evaluate_kml()
 
 def load_labels(path=LABELS_FILE):
     if not os.path.exists(path):
@@ -99,6 +99,63 @@ def export_labels_kml(path=LABELS_FILE, out_path=LABELS_KML):
     with open(out_path, "w") as f:
         f.write(doc.toprettyxml(indent="  "))
     print(f"Exported {len(labels)} labels to KML => {out_path}")
+
+
+def export_evaluate_kml(path=EVALUATE_FILE, out_path=EVALUATE_KML):
+    """Export evaluation labels to a KML similar in style to labels.kml."""
+    labels = load_labels(path)
+    doc = minidom.Document()
+    kml = doc.createElement("kml")
+    kml.setAttribute("xmlns", "http://www.opengis.net/kml/2.2")
+    doc.appendChild(kml)
+    d = doc.createElement("Document")
+    kml.appendChild(d)
+
+    style_agri = doc.createElement("Style"); style_agri.setAttribute("id", "agri")
+    icon_agri = doc.createElement("IconStyle")
+    color_agri = doc.createElement("color")
+    color_agri.appendChild(doc.createTextNode("ff00ff00"))
+    icon_agri.appendChild(color_agri)
+    label_agri = doc.createElement("LabelStyle")
+    scale_agri = doc.createElement("scale"); scale_agri.appendChild(doc.createTextNode("0"))
+    label_agri.appendChild(scale_agri)
+    style_agri.appendChild(icon_agri); style_agri.appendChild(label_agri)
+    d.appendChild(style_agri)
+
+    style_non = doc.createElement("Style"); style_non.setAttribute("id", "nonagri")
+    icon_non = doc.createElement("IconStyle")
+    color_non = doc.createElement("color")
+    color_non.appendChild(doc.createTextNode("ff0000ff"))
+    icon_non.appendChild(color_non)
+    label_non = doc.createElement("LabelStyle")
+    scale_non = doc.createElement("scale"); scale_non.appendChild(doc.createTextNode("0"))
+    label_non.appendChild(scale_non)
+    style_non.appendChild(icon_non); style_non.appendChild(label_non)
+    d.appendChild(style_non)
+
+    for r in labels:
+        pm = doc.createElement("Placemark")
+        name_el = doc.createElement("name")
+        name_el.appendChild(doc.createTextNode(r.get("notes", "")))
+        pm.appendChild(name_el)
+
+        style = doc.createElement("styleUrl")
+        if r.get("label", "").lower() == "agricultural":
+            style.appendChild(doc.createTextNode("#agri"))
+        else:
+            style.appendChild(doc.createTextNode("#nonagri"))
+        pm.appendChild(style)
+
+        pt = doc.createElement("Point")
+        coords = doc.createElement("coordinates")
+        coords.appendChild(doc.createTextNode(f"{r.get('lon')},{r.get('lat')},0"))
+        pt.appendChild(coords)
+        pm.appendChild(pt)
+        d.appendChild(pm)
+
+    with open(out_path, "w") as f:
+        f.write(doc.toprettyxml(indent="  "))
+    print(f"Exported {len(labels)} evaluation labels to KML => {out_path}")
 
 
 def check_label_requirements():
@@ -468,12 +525,14 @@ def create_evaluation_labels():
         eid = f"eval_{int(random.random()*1e6)}"
         with open(EVALUATE_FILE, "a", newline="") as f:
             csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
+        export_evaluate_kml()
         existing.append({"lat": lat, "lon": lon})
         if lab == "Agricultural":
             agri += 1
         else:
             non += 1
         print(f"Evaluation label added. Totals → Agri:{agri}/25 Non:{non}/75")
+    export_evaluate_kml()
     print(f"Evaluation labeling complete → {EVALUATE_FILE}")
 
 # ——————— INITIAL LABELING LOOP ———————

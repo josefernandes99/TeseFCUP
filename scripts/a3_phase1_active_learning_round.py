@@ -16,6 +16,7 @@ import random
 from collections import defaultdict
 import time
 import datetime
+import json
 from pyproj import Transformer
 
 import numpy as np
@@ -36,7 +37,6 @@ from rich.progress import (
 )
 from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
 
@@ -50,8 +50,16 @@ from config import (
     NOTE_OPTIONS,
 )
 import config as cfg
+from evaluation import evaluate_model
 
 from a2_phase1_initial_labeling import generate_grids_for_all_tiles
+from features import (
+    load_cached_features,
+    get_normalizers,
+    compute_normalizers,
+    feature_cache_path,
+)
+from al_shared import preload_tiles, extract_features_from_label
 
 
 # -----------------------------------------------------------------------------
@@ -68,38 +76,14 @@ def prompt_note():
     print("Invalid choice; using 'Other'.")
     return NOTE_OPTIONS[-1]
 
-def extract_features_from_label(row):
-    """Read pixel values at the label coordinate.
-
-    Sentinel-2 tiles are typically stored in a projected UTM coordinate
-    reference system while label coordinates are assumed to be WGS84
-    (latitude/longitude).  The function therefore converts from WGS84 to the
-    tile CRS prior to sampling.  If tiles have been reprojected to WGS84 during
-    download (user provided flag), the conversion becomes a no-op.
-    """
-    lat, lon = float(row["lat"]), float(row["lon"])
-    tif_path = os.path.join(RAW_DATA_DIR, row["tile"])
-    if not os.path.exists(tif_path):
-        raise FileNotFoundError(f"Tile file not found: {tif_path}")
-    with rasterio.open(tif_path) as src:
-        x, y = lon, lat
-        if src.crs and not src.crs.is_geographic:
-            transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
-            x, y = transformer.transform(lon, lat)
-        for vals in src.sample([(x, y)]):
-            return list(vals.astype(float))
-    return None
-
-
 # -----------------------------------------------------------------------------
 # 3) Model wrappers & training, now with full‐feature statistics and scaling
 # -----------------------------------------------------------------------------
 class SklearnWrapper:
-    def __init__(self, clf, feat_means, feat_std, scaler=None):
+    def __init__(self, clf, feat_means, feat_std):
         self.clf = clf
         self.feat_means = feat_means
         self.feat_std = feat_std
-        self.scaler = scaler  # for SVM
 
     def predict_proba(self, X):
         # 1) impute missing with feature means
@@ -107,12 +91,8 @@ class SklearnWrapper:
         if inds[0].size:
             X = X.copy()
             X[inds] = np.take(self.feat_means, inds[1])
-        # 2) if an sklearn scaler is provided (SVM), use it
-        if self.scaler is not None:
-            Xs = self.scaler.transform(X)
-        else:
-            # for RF, do z‐score scaling manually (optional)
-            Xs = (X - self.feat_means) / (self.feat_std + 1e-6)
+        # 2) z‐score scale with global stats
+        Xs = (X - self.feat_means) / (self.feat_std + 1e-6)
         return self.clf.predict_proba(Xs)
 
     def predict(self, X):
@@ -188,44 +168,37 @@ def train_resnet(net, x_t, y_t):
 
 
 def train_model(choice, X, y):
-    """
-    Compute full‐feature stats (min, max, mean, var),
-    then train SVM / RF / ResNet using z‐score or StandardScaler
-    so RBF distances are meaningful.
-    """
-    # 1) compute & impute training‐set means
-    feat_means = np.nanmean(X, axis=0)
+    """Train model using global standardization stats."""
+    _, feat_means, feat_std = get_normalizers()
+    # If the saved normalizer file is out of date (e.g. feature set changed),
+    # recompute statistics so that their length matches the feature dimension.
+    if feat_means.shape[0] != X.shape[1]:
+        _, feat_means, feat_std = compute_normalizers()
+        if feat_means.shape[0] != X.shape[1]:
+            raise ValueError(
+                "Feature count mismatch between data and normalizers. "
+                "Delete cached feature stacks and normalizers.csv and rerun."
+            )
     inds = np.where(np.isnan(X))
     if inds[0].size:
         X[inds] = np.take(feat_means, inds[1])
-
-    # 2) compute full statistics
-    feat_min  = np.min(X, axis=0)
-    feat_max  = np.max(X, axis=0)
-    feat_mean = feat_means
-    feat_var  = np.var(X, axis=0)
-    feat_std  = np.sqrt(feat_var)
+    Xs = (X - feat_means) / (feat_std + 1e-6)
 
     c = choice.lower()
     if c == "svm":
-        # StandardScaler for true zero-mean/unit-variance
-        scaler = StandardScaler().fit(X)
-        Xs = scaler.transform(X)
-        base_params = {k: v for k, v in cfg.SVM_PARAMS.items() if k not in ("C", "gamma")}
         params = cfg.SVM_PARAMS.copy()
         clf = SVC(probability=True, **params)
         clf.fit(Xs, y)
-        return SklearnWrapper(clf, feat_means, feat_std, scaler)
+        return SklearnWrapper(clf, feat_means, feat_std)
 
     elif c == "randomforest":
         rf = RandomForestClassifier(n_jobs=-1, **cfg.RF_PARAMS)
-        rf.fit(X, y)
-        # we will z‐score scale at inference for consistency
-        return SklearnWrapper(rf, feat_means, feat_std, scaler=None)
+        rf.fit(Xs, y)
+        return SklearnWrapper(rf, feat_means, feat_std)
 
     elif c == "resnet":
-        net = TabularResNet(input_dim=X.shape[1])
-        train_resnet(net, torch.from_numpy(X.astype(np.float32)), torch.from_numpy(y.astype(np.int64)))
+        net = TabularResNet(input_dim=Xs.shape[1])
+        train_resnet(net, torch.from_numpy(Xs.astype(np.float32)), torch.from_numpy(y.astype(np.int64)))
         scripted = torch.jit.script(net)
         return PytorchResNetWrapper(scripted, feat_means, feat_std)
 
@@ -251,9 +224,9 @@ def get_pixel_corners(src, r, c):
 def predict_entire_tile(tile_path, model, progress=None, task_id=None):
     """Run inference on a tile and optionally update a progress bar."""
     tile_name = os.path.basename(tile_path)
-    print(f"Inferring ⇒ {tile_name}")
     with rasterio.open(tile_path) as src:
-        arr   = src.read().astype(np.float32)       # (bands, H, W)
+        cache_path = feature_cache_path(tile_path)
+        arr, _, _ = load_cached_features(cache_path, arr=src.read().astype(np.float32))
         b, H, W = arr.shape
         X     = arr.reshape(b, -1).T                # (H*W, bands)
         probs = model.predict_proba(X)[:, 1]        # bulk proba
@@ -292,41 +265,84 @@ def save_predictions(round_folder, preds):
     print(f"Predictions written to {path}")
 
 
-def save_agricultural_polygons_kml(round_folder, model, round_num):
-    """Export polygons after thresholding and sieving predictions."""
+def _load_predictions_by_tile(csv_path):
+    """Return mapping: tile -> (row_indices, col_indices, probs)."""
+    pred_map = {}
+    with open(csv_path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            tile = row["tile"]
+            ri = int(row["row_idx"])
+            ci = int(row["col_idx"])
+            prob = float(row["predicted_prob"])
+            if tile not in pred_map:
+                pred_map[tile] = ([], [], [])
+            pred_map[tile][0].append(ri)
+            pred_map[tile][1].append(ci)
+            pred_map[tile][2].append(prob)
+    for t, (rs, cs, ps) in pred_map.items():
+        pred_map[t] = (
+            np.array(rs, dtype=np.int32),
+            np.array(cs, dtype=np.int32),
+            np.array(ps, dtype=np.float32),
+        )
+    return pred_map
+
+
+def save_agricultural_polygons_kml(round_folder, round_num, pred_csv=None):
+    """Polygonize cached predictions without re-running model inference."""
+    pred_csv = pred_csv or os.path.join(round_folder, "predictions.csv")
+    if not os.path.exists(pred_csv):
+        print(f"Missing predictions file ⇒ {pred_csv}")
+        return
+
+    pred_map = _load_predictions_by_tile(pred_csv)
     kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
-    tifs     = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
     polys = []
 
-    for tp in tifs:
-        with rasterio.open(tp) as src:
-            arr = src.read().astype(np.float32)
-            b, H, W = arr.shape
-            X = arr.reshape(b, -1).T
-            probs = model.predict_proba(X)[:, 1].reshape(H, W)
-            crop = probs >= cfg.MIN_AGRI_PROB
-            uncertain = (probs >= cfg.CANDIDATE_PROB_LOWER) & (probs < cfg.MIN_AGRI_PROB)
-            mask = crop | uncertain
-            from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
-            mask = binary_fill_holes(binary_closing(mask))
-            lbl, num = ndlabel(mask)
-            for i in range(1, num+1):
-                comp = (lbl==i)
-                if not np.any(crop[comp]):
-                    mask[comp] = False
-            if cfg.SIEVE_MIN_SIZE > 0:
-                mask = sieve(mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
-            transformer = None
-            if src.crs and not src.crs.is_geographic:
-                transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+    with Progress(
+        "[bold cyan]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(),
+    ) as prog:
+        task = prog.add_task("Polygonizing tiles", total=len(pred_map))
 
-            for geom, val in shapes(mask.astype("uint8"), mask=mask, transform=src.transform):
-                if val != 1:
-                    continue
-                poly = shape(geom)
-                if transformer:
-                    poly = shp_transform(transformer.transform, poly)
-                polys.append(poly)
+        for tile, (rows, cols, probs) in pred_map.items():
+            tif = os.path.join(RAW_DATA_DIR, tile)
+            if not os.path.exists(tif):
+                print(f"⚠️  Missing tile for predictions ⇒ {tile}")
+                prog.update(task, advance=1)
+                continue
+            with rasterio.open(tif) as src:
+                H, W = src.height, src.width
+                arr_probs = np.zeros((H, W), dtype=np.float32)
+                arr_probs[rows, cols] = probs
+                crop = arr_probs >= cfg.MIN_AGRI_PROB
+                uncertain = (arr_probs >= cfg.CANDIDATE_PROB_LOWER) & (arr_probs < cfg.MIN_AGRI_PROB)
+                mask = crop | uncertain
+                from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
+                mask = binary_fill_holes(binary_closing(mask))
+                lbl, num = ndlabel(mask)
+                for i in range(1, num + 1):
+                    comp = (lbl == i)
+                    if not np.any(crop[comp]):
+                        mask[comp] = False
+                if cfg.SIEVE_MIN_SIZE > 0:
+                    mask = sieve(mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
+                transformer = None
+                if src.crs and not src.crs.is_geographic:
+                    transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+
+                for geom, val in shapes(mask.astype("uint8"), mask=mask, transform=src.transform):
+                    if val != 1:
+                        continue
+                    poly = shape(geom)
+                    if transformer:
+                        poly = shp_transform(transformer.transform, poly)
+                    polys.append(poly)
+            prog.update(task, advance=1)
 
     if not polys:
         print(f"⚠️  No polygons (all probs < {cfg.MIN_AGRI_PROB})")
@@ -441,6 +457,8 @@ def active_learning_round(
     if len(rows) <= 1:
         print("Not enough labels; aborting.")
         return None
+    tiles = sorted({r["tile"] for r in rows})
+    preload_tiles(tiles)
     X, y = [], []
     for r in rows:
         feats = extract_features_from_label(r)
@@ -491,7 +509,19 @@ def active_learning_round(
         save_predictions(rnd_dir, preds)
     else:
         print("Skipping predictions.csv generation.")
-    save_agricultural_polygons_kml(rnd_dir, model, round_num)
+    save_agricultural_polygons_kml(rnd_dir, round_num)
+
+    # Evaluate against optional evaluation set
+    metrics = evaluate_model(model, out_dir=rnd_dir)
+    if metrics is not None:
+        from rich.table import Table
+        from rich.console import Console
+        tbl = Table(title="Evaluation Metrics")
+        tbl.add_column("Metric")
+        tbl.add_column("Value", justify="right")
+        for k, v in metrics.items():
+            tbl.add_row(k, f"{v:.4f}" if isinstance(v, float) else str(v))
+        Console().print(tbl)
 
     if not request_labels or not save_preds:
         print(f"Round {round_num} complete (no candidate labeling).")
@@ -573,8 +603,11 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num):
     with open(tmp, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["id", "lat", "lon", "tile", "label", "notes"])
+
+    # Use a single KML filename so that each candidate overwrites the previous
+    kmlp = os.path.join(round_dir, "temp_candidate.kml")
+
     for idx, (t, r, c, la, lo, p) in enumerate(cands):
-        kmlp = os.path.join(round_dir, f"candidate_{idx}.kml")
         generate_candidate_kml(t, r, c, kmlp)
         print(f"Candidate: {t} r={r},c={c}, p={p:.3f}")
         ui = input("Label? (1=Agri,2=NonAgri,3=Skip): ").strip()

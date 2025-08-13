@@ -5,7 +5,11 @@ import os
 
 from a0_setup_check import setup_check
 from a1_phase1_data_download import download_data
-from a2_phase1_initial_labeling import initial_labeling, ensure_labels_file
+from a2_phase1_initial_labeling import (
+    initial_labeling,
+    ensure_labels_file,
+    ensure_evaluate_file,
+)
 from a4_phase1_active_learning_loop import active_learning_loop, collect_user_hyperparams
 from a6_phase1_postprocessing import postprocessing
 from grid_search import run_grid_search
@@ -43,7 +47,9 @@ def clear_checkpoint():
 
 def main():
     print("=== Starting PythonProject Pipeline ===\n")
+    print("Note: computing 5x5 GLCM textures and global normalization can be slow; this is the main start-up cost.\n")
     ensure_labels_file()
+    ensure_evaluate_file()
     mw = None
     try:
         cp = load_checkpoint()
@@ -65,6 +71,7 @@ def main():
         al_start_round = cp.get("round", 1) if cp and start_step == "active_learning_loop" else 1
         al_total_rounds = cp.get("total_rounds") if cp else None
         al_model_choice = cp.get("model_choice") if cp else None
+        al_params = cp.get("params") if cp else None
 
         for step in STEP_ORDER[step_idx:]:
             if step == "setup_check":
@@ -91,8 +98,14 @@ def main():
                     clear_checkpoint()
                     return
                 else:
-                    def cb(r, nr, mc):
-                        save_checkpoint("active_learning_loop", round=r, total_rounds=nr, model_choice=mc)
+                    def cb(r, nr, mc, params):
+                        save_checkpoint(
+                            "active_learning_loop",
+                            round=r,
+                            total_rounds=nr,
+                            model_choice=mc,
+                            params=params,
+                        )
                     mchoice = al_model_choice
                     if mchoice is None:
                         print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
@@ -102,7 +115,7 @@ def main():
                             mchoice = models[int(ch) - 1]
                         else:
                             mchoice = "RandomForest"
-                    params = collect_user_hyperparams(mchoice)
+                    params = al_params or collect_user_hyperparams(mchoice)
                     active_learning_loop(
                         al_start_round,
                         al_total_rounds,

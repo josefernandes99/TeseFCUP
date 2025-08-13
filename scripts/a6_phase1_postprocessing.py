@@ -15,6 +15,7 @@ from rich.progress import (
 )
 from memory_watcher import free_unused_memory
 from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, MIN_AGRI_PROB, CANDIDATE_PROB_LOWER, SIEVE_MIN_SIZE
+from features import load_cached_features, feature_cache_path
 from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
 from rasterio.features import sieve
 
@@ -39,12 +40,16 @@ def get_final_model_path():
         print("No valid round folders ⇒ no final model.")
         return None
     rounds.sort(key=lambda x: x[0])
-    final_r = rounds[-1][1]
-    model_path = os.path.join(final_r, f"model_round_{rounds[-1][0]}.pkl")
-    if not os.path.exists(model_path):
-        print("Model file not found ⇒", model_path)
+    final_num, final_r = rounds[-1]
+    # Models may be stored within subdirectories (e.g., "manual" or grid-search
+    # combo names). Search recursively for the expected model file inside the
+    # last round folder.
+    pattern = os.path.join(final_r, "**", f"model_round_{final_num}.pkl")
+    matches = glob.glob(pattern, recursive=True)
+    if not matches:
+        print("Model file not found ⇒", os.path.join(final_r, f"model_round_{final_num}.pkl"))
         return None
-    return model_path
+    return matches[0]
 
 def classify_tile(tile_path, model):
     """
@@ -53,7 +58,8 @@ def classify_tile(tile_path, model):
     Returns the single‐band prediction array and original profile.
     """
     with rasterio.open(tile_path) as src:
-        img = src.read().astype(np.float32)                 # shape: (bands, height, width)
+        cache_path = feature_cache_path(tile_path)
+        img, _, _ = load_cached_features(cache_path, arr=src.read().astype(np.float32))
         b, h, w = img.shape
         X = img.reshape(b, -1).T        # (h*w, bands)
         probs = model.predict_proba(X)[:,1].reshape(h, w)

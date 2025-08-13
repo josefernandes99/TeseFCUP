@@ -4,7 +4,7 @@ import shutil
 import csv
 
 import config as cfg
-from a3_phase1_active_learning_round import active_learning_round, candidate_selection_from_csv
+from a3_phase1_active_learning_round import active_learning_round
 from grid_search import generate_param_combinations
 from config import LABELS_FILE, TEMP_LABELS_FILE
 
@@ -34,30 +34,54 @@ def append_temp_labels(new_labels_file):
 
 
 def collect_user_hyperparams(model_choice):
-    """Interactively collect hyper-parameters for a fixed run."""
+    """Interactively collect hyper-parameters for a fixed run.
+
+    Returns a dictionary containing parameter overrides and a ``NAME`` key
+    describing the combination for use in output folder names.
+    """
     params = {}
+    parts = []
     mc = model_choice.lower()
     if mc == "svm":
         C = input("C [0.1,1,10,100]? => ").strip() or "1"
         gamma = input("gamma [scale,auto,0.01,0.1,1.0]? => ").strip() or "scale"
+        cw = input("class_weight [none,balanced]? => ").strip().lower() or "none"
         try:
             gamma_val = float(gamma)
         except ValueError:
             gamma_val = gamma
-        params["SVM_PARAMS"] = {"C": float(C), "gamma": gamma_val}
+        cw_val = None if cw == "none" else "balanced"
+        params["SVM_PARAMS"] = {"C": float(C), "gamma": gamma_val, "class_weight": cw_val}
+        parts.extend([f"C-{C}", f"gamma-{gamma}", f"cw-{cw_val}"])
     elif mc == "randomforest":
         ne = input("n_estimators [100,200,400]? => ").strip() or "100"
         md = input("max_depth [6,8,10,12]? => ").strip() or "8"
         ml = input("min_samples_leaf [1,2,4]? => ").strip() or "1"
-        params["RF_PARAMS"] = {"n_estimators": int(ne), "max_depth": int(md), "min_samples_leaf": int(ml)}
+        cw = input("class_weight [none,balanced]? => ").strip().lower() or "none"
+        cw_val = None if cw == "none" else "balanced"
+        params["RF_PARAMS"] = {
+            "n_estimators": int(ne),
+            "max_depth": int(md),
+            "min_samples_leaf": int(ml),
+            "class_weight": cw_val,
+        }
+        parts.extend([f"ne-{ne}", f"md-{md}", f"ml-{ml}", f"cw-{cw_val}"])
     th = input("MIN_AGRI_PROB [0.3,0.4,0.5,0.6]? => ").strip() or str(cfg.MIN_AGRI_PROB)
     sv = input("SIEVE_MIN_SIZE [0,2,5,10,20]? => ").strip() or str(cfg.SIEVE_MIN_SIZE)
     params["MIN_AGRI_PROB"] = float(th)
     params["SIEVE_MIN_SIZE"] = int(sv)
+    parts.extend([f"th-{th}", f"sieve-{sv}"])
+    params["NAME"] = "_".join(parts)
     return params
 
-def active_learning_loop(start_round=1, total_rounds=None, model_choice=None,
-                        checkpoint_cb=None, use_grid_search=True, user_params=None):
+def active_learning_loop(
+    start_round=1,
+    total_rounds=None,
+    model_choice=None,
+    checkpoint_cb=None,
+    use_grid_search=True,
+    user_params=None,
+):
     if total_rounds is None:
         try:
             nr = int(input("How many AL rounds? => "))
@@ -80,19 +104,22 @@ def active_learning_loop(start_round=1, total_rounds=None, model_choice=None,
         mchoice = model_choice
 
     initialize_temp_labels()
+    init_params = dict(user_params) if user_params else {}
 
     if checkpoint_cb:
-        checkpoint_cb(start_round, nr, mchoice)
+        checkpoint_cb(start_round, nr, mchoice, init_params)
 
     if use_grid_search:
         combos = generate_param_combinations(mchoice)
         if not combos:
             combos = [("default", {})]
     else:
-        combos = [("manual", user_params or {})]
+        name = init_params.pop("NAME", "manual")
+        combos = [(name, init_params)]
 
     for r in range(start_round, nr + 1):
         combo_names = []
+        tmp_files = []
         for name, params in combos:
             combo_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", name)
 
@@ -110,7 +137,13 @@ def active_learning_loop(start_round=1, total_rounds=None, model_choice=None,
             if "RF_PARAMS" in params:
                 cfg.RF_PARAMS.update(params["RF_PARAMS"])
 
-            active_learning_round(r, TEMP_LABELS_FILE, mchoice, request_labels=False, out_dir=combo_dir)
+            tmp = active_learning_round(
+                r,
+                TEMP_LABELS_FILE,
+                mchoice,
+                request_labels=r < nr,
+                out_dir=combo_dir,
+            )
 
             # restore
             cfg.MIN_AGRI_PROB = old_min
@@ -118,37 +151,27 @@ def active_learning_loop(start_round=1, total_rounds=None, model_choice=None,
             cfg.SVM_PARAMS = old_svm
             cfg.RF_PARAMS = old_rf
             combo_names.append(name)
+            tmp_files.append(tmp)
 
-        if use_grid_search and r < nr:
-            print("Available combinations:")
-            for n in combo_names:
-                print(f" - {n}")
-            chosen = input("what combination to use? => ").strip()
-            if chosen not in combo_names:
-                print("Invalid choice; defaulting to first")
-                chosen = combo_names[0]
-            selected_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", chosen)
-            pred_csv = os.path.join(selected_dir, "predictions.csv")
-            if os.path.exists(pred_csv):
-                newfile = candidate_selection_from_csv(pred_csv, selected_dir, r)
-                if newfile:
-                    append_temp_labels(newfile)
+        if r < nr:
+            if use_grid_search:
+                print("Available combinations:")
+                for n in combo_names:
+                    print(f" - {n}")
+                chosen = input("what combination to use? => ").strip()
+                if chosen not in combo_names:
+                    print("Invalid choice; defaulting to first")
+                    chosen = combo_names[0]
+                idx = combo_names.index(chosen)
+                newfile = tmp_files[idx]
+                chosen_params = combos[idx][1]
             else:
-                print(f"Missing predictions CSV => {pred_csv}")
+                newfile = tmp_files[0]
+                chosen_params = combos[0][1]
+            if newfile:
+                append_temp_labels(newfile)
             if checkpoint_cb:
-                checkpoint_cb(r + 1, nr, mchoice)
-        elif not use_grid_search and r < nr:
-            combo_name = combos[0][0]
-            selected_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", combo_name)
-            pred_csv = os.path.join(selected_dir, "predictions.csv")
-            if os.path.exists(pred_csv):
-                newfile = candidate_selection_from_csv(pred_csv, selected_dir, r)
-                if newfile:
-                    append_temp_labels(newfile)
-            else:
-                print(f"Missing predictions CSV => {pred_csv}")
-            if checkpoint_cb:
-                checkpoint_cb(r + 1, nr, mchoice)
+                checkpoint_cb(r + 1, nr, mchoice, chosen_params)
 
     print("AL loop done. Final model => last round folder.")
 

@@ -1,0 +1,98 @@
+id,lat,lon,tile,label,notes
+manual_597351,16.649634,-24.396142,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Crop Center
+manual_386533,16.647978,-24.393564,Sao_Nicolau_tile4.tif,Non-Agricultural,Tree/Bush
+manual_999800,16.645831,-24.408249,Sao_Nicolau_tile4.tif,Non-Agricultural,"Open Field, No Vegetation"
+manual_403817,16.58277,-24.375915,Sao_Nicolau_tile7.tif,Non-Agricultural,Building / Man Made
+manual_913357,16.610947,-24.41847,Sao_Nicolau_tile3.tif,Non-Agricultural,Tree/Bush
+manual_427694,16.649238,-24.429403,Sao_Nicolau_tile4.tif,Non-Agricultural,Water Bodies
+manual_515537,16.567435,-24.376368,Sao_Nicolau_tile7.tif,Non-Agricultural,Water Bodies
+manual_862227,16.564795,-24.356323,Sao_Nicolau_tile7.tif,Non-Agricultural,Building / Man Made
+manual_969616,16.576159,-24.357546,Sao_Nicolau_tile7.tif,Non-Agricultural,Tree/Bush
+manual_861289,16.586515,-24.293828,Sao_Nicolau_tile12.tif,Non-Agricultural,"Open Field, Vegetation"
+manual_365185,16.630827,-24.222476,Sao_Nicolau_tile23.tif,Non-Agricultural,"Open Field, Vegetation"
+manual_667484,16.557229,-24.08254,Sao_Nicolau_tile36.tif,Non-Agricultural,"Open Field, Vegetation"
+manual_85000,16.56169,-24.080721,Sao_Nicolau_tile37.tif,Non-Agricultural,"Open Field, Vegetation"
+manual_151555,16.615134,-24.133475,Sao_Nicolau_tile33.tif,Non-Agricultural,Building / Man Made
+manual_32434,16.632848,-24.194724,Sao_Nicolau_tile23.tif,Non-Agricultural,Tree/Bush
+manual_202633,16.642402,-24.229073,Sao_Nicolau_tile23.tif,Non-Agricultural,Tree/Bush
+manual_904176,16.649525,-24.215483,Sao_Nicolau_tile24.tif,Non-Agricultural,Water Bodies
+manual_141590,16.587411,-24.185185,Sao_Nicolau_tile27.tif,Non-Agricultural,Water Bodies
+manual_811883,16.669064,-24.316104,Sao_Nicolau_tile14.tif,Non-Agricultural,Water Bodies
+manual_286374,16.628633,-24.367128,Sao_Nicolau_tile8.tif,Non-Agricultural,Building / Man Made
+manual_384987,16.618046,-24.293597,Sao_Nicolau_tile13.tif,Non-Agricultural,Building / Man Made
+manual_395364,16.631437,-24.315188,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, Vegetation"
+manual_910628,16.633977,-24.23304,Sao_Nicolau_tile23.tif,Non-Agricultural,"Open Field, No Vegetation"
+manual_495429,16.60141,-24.189342,Sao_Nicolau_tile27.tif,Non-Agricultural,"Open Field, No Vegetation"
+manual_177073,16.615867,-24.133165,Sao_Nicolau_tile33.tif,Non-Agricultural,"Open Field, No Vegetation"
+manual_859901,16.610347,-24.327796,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, No Vegetation"
+manual_948340,16.568385,-24.354881,Sao_Nicolau_tile7.tif,Agricultural,Agricultural Crop Center
+manual_271080,16.604365,-24.339159,Sao_Nicolau_tile8.tif,Agricultural,Agricultural Crop Center
+manual_264496,16.607759,-24.32064,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Doubtful
+manual_462749,16.649284,-24.301643,Sao_Nicolau_tile14.tif,Agricultural,Agricultural Crop Center
+manual_547079,16.646929,-24.300876,Sao_Nicolau_tile14.tif,Agricultural,Agricultural Crop Border
+manual_297066,16.64692,-24.301167,Sao_Nicolau_tile14.tif,Agricultural,Agricultural Crop Center
+manual_356332,16.64103,-24.292792,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_551998,16.642012,-24.292472,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_894240,16.641088,-24.292143,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_272899,16.635039,-24.291314,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_408397,16.634822,-24.291577,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Border
+manual_432188,16.587735,-24.289639,Sao_Nicolau_tile12.tif,Agricultural,Agricultural Crop Border
+manual_319289,16.646592,-24.323677,Sao_Nicolau_tile14.tif,Agricultural,Agricultural Crop Center
+manual_266493,16.647324,-24.395192,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Crop Border
+manual_206878,16.649198,-24.395883,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Crop Center
+manual_549600,16.649135,-24.395065,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Crop Border
+manual_339557,16.614871,-24.301616,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_531473,16.605956,-24.286768,Sao_Nicolau_tile18.tif,Agricultural,Agricultural Crop Center
+manual_479114,16.606539,-24.287417,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_745494,16.601667,-24.319819,Sao_Nicolau_tile12.tif,Agricultural,Agricultural Crop Center
+manual_657565,16.604505,-24.32338,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Center
+manual_448309,16.597342,-24.322021,Sao_Nicolau_tile12.tif,Agricultural,Agricultural Crop Doubtful
+manual_598417,16.599535,-24.320966,Sao_Nicolau_tile12.tif,Agricultural,Agricultural Crop Doubtful
+manual_511422,16.595201,-24.324104,Sao_Nicolau_tile12.tif,Agricultural,Agricultural Crop CenterAL_1_84131,16.606939366668133,-24.35115731842842,Sao_Nicolau_tile8.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_211520,16.601631931572264,-24.338801459928796,Sao_Nicolau_tile7.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_794620,16.645400673489263,-24.33394091643245,Sao_Nicolau_tile14.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_851596,16.645376573410122,-24.33543871718057,Sao_Nicolau_tile14.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_511940,16.62901147857156,-24.222887063859556,Sao_Nicolau_tile23.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_125882,16.62901002413238,-24.222980678979145,Sao_Nicolau_tile23.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_482213,16.64605417016398,-24.298743432706036,Sao_Nicolau_tile14.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_99503,16.64100974395588,-24.292383196513043,Sao_Nicolau_tile13.tif,Agricultural,Agricultural Crop Border
+AL_1_756386,16.66369922473682,-24.335568926106788,Sao_Nicolau_tile14.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_1_710170,16.664033255417493,-24.320403696657255,Sao_Nicolau_tile14.tif,Non-Agricultural,Building / Man Made
+AL_1_853477,16.65576932485723,-24.35706295195927,Sao_Nicolau_tile9.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_1_181859,16.655738971096433,-24.358935258787135,Sao_Nicolau_tile9.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_1_643308,16.620897648376523,-24.291197072763467,Sao_Nicolau_tile13.tif,Non-Agricultural,Building / Man Made
+AL_1_32625,16.62083972055351,-24.294847652802424,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_399838,16.635454407691796,-24.37403066546948,Sao_Nicolau_tile8.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_421905,16.644048202916945,-24.36734580470748,Sao_Nicolau_tile9.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_469113,16.592898978892002,-24.11639327714327,Sao_Nicolau_tile32.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_353952,16.592925636743765,-24.114614736417753,Sao_Nicolau_tile32.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_302662,16.620519226832013,-24.31497238347012,Sao_Nicolau_tile13.tif,Non-Agricultural,Building / Man Made
+AL_1_212224,16.62859688939913,-24.306590685503146,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_1_166991,16.635824192716832,-24.356808947239745,Sao_Nicolau_tile8.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_346004,16.61986809996474,-24.230318695111862,Sao_Nicolau_tile23.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_605581,16.60329749787159,-24.256630993444066,Sao_Nicolau_tile18.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_342112,16.581175208815676,-24.30839984071512,Sao_Nicolau_tile12.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_1_131182,16.58109922550724,-24.31317260949269,Sao_Nicolau_tile12.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_2_506689,16.64458076299028,-24.356774243867473,Sao_Nicolau_tile8.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_85352,16.644611077525436,-24.354902041252878,Sao_Nicolau_tile8.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_317674,16.650063037808973,-24.385991208126168,Sao_Nicolau_tile4.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_711045,16.618294061265345,-24.329914370054823,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_577643,16.617928574620066,-24.330188938967233,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_104525,16.645636583695122,-24.31924361514553,Sao_Nicolau_tile14.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_2_296581,16.59382146412865,-24.290829181509928,Sao_Nicolau_tile12.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_890214,16.593747311812248,-24.295508755864585,Sao_Nicolau_tile12.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_222270,16.622389779486497,-24.25957488010161,Sao_Nicolau_tile18.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_189625,16.622460912491338,-24.260793315445856,Sao_Nicolau_tile18.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_374745,16.62269693464388,-24.285890792480178,Sao_Nicolau_tile18.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_43899,16.622600755909332,-24.28626367953125,Sao_Nicolau_tile18.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_317602,16.519071320001704,-24.20991962370094,Sao_Nicolau_tile21.tif,Non-Agricultural,Water Bodies
+AL_2_854029,16.51948007171742,-24.200941977053333,Sao_Nicolau_tile21.tif,Non-Agricultural,Water Bodies
+AL_2_957676,16.589709833585005,-24.18974435540578,Sao_Nicolau_tile27.tif,Non-Agricultural,Water Bodies
+AL_2_807800,16.58998922474551,-24.189187227671024,Sao_Nicolau_tile27.tif,Non-Agricultural,Water Bodies
+AL_2_113149,16.52566477131531,-24.150503834683374,Sao_Nicolau_tile26.tif,Non-Agricultural,Water Bodies
+AL_2_228890,16.520286890221392,-24.171755386113173,Sao_Nicolau_tile26.tif,Non-Agricultural,Water Bodies
+AL_2_565053,16.618827498400883,-24.29649860499524,Sao_Nicolau_tile13.tif,Non-Agricultural,"Open Field, Vegetation"
+AL_2_406795,16.62214807016954,-24.274926546460627,Sao_Nicolau_tile18.tif,Non-Agricultural,Building / Man Made
+AL_2_864119,16.62205634253375,-24.275018621130418,Sao_Nicolau_tile18.tif,Non-Agricultural,"Open Field, No Vegetation"
+AL_2_864714,16.481527958571014,-24.232504677933562,Sao_Nicolau_tile20.tif,Non-Agricultural,Water Bodies
+AL_2_728397,16.52640742459786,-24.161092089150632,Sao_Nicolau_tile26.tif,Non-Agricultural,Water Bodies

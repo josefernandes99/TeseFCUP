@@ -9,10 +9,9 @@ DATA_DIR = os.path.join(BASE_DIR, "data", "phase1")
 RAW_DATA_DIR = os.path.join(DATA_DIR, "raw")
 ROUNDS_DIR = os.path.join(DATA_DIR, "rounds")
 LABELS_DIR = os.path.join(BASE_DIR, "labels", "phase1")
-MODELS_DIR = os.path.join(BASE_DIR, "models")
 CHECKPOINT_FILE = os.path.join(DATA_DIR, "checkpoint.txt")
 
-for folder in [RAW_DATA_DIR, ROUNDS_DIR, LABELS_DIR, MODELS_DIR]:
+for folder in [RAW_DATA_DIR, ROUNDS_DIR, LABELS_DIR]:
     if not os.path.exists(folder):
         os.makedirs(folder)
 
@@ -21,6 +20,8 @@ TEMP_LABELS_FILE = os.path.join(LABELS_DIR, "temp_labels.csv")
 LABELS_KML = os.path.join(LABELS_DIR, "labels.kml")
 CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
 GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
+# KML export for evaluation labels
+EVALUATE_KML = os.path.join(LABELS_DIR, "evaluate.kml")
 # Optional evaluation labels used for model assessment
 EVALUATE_FILE = os.path.join(LABELS_DIR, "evaluate.csv")
 if not os.path.exists(GRID_KML_DIR):

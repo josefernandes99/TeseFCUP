@@ -23,10 +23,12 @@ def generate_param_combinations(model_choice):
     if model_choice.lower() == "svm":
         Cs = [0.1, 1]
         gammas = ["auto", 0.1]
-        for C, g, th, sv in product(Cs, gammas, thresholds, sieves):
-            name = f"C-{C}_gamma-{g}_th-{th}_sieve-{sv}_"
+        class_weights = [None, "balanced"]
+        for C, g, cw, th, sv in product(Cs, gammas, class_weights, thresholds, sieves):
+            name = f"C-{C}_gamma-{g}_cw-{cw}_th-{th}_sieve-{sv}_"
+            params = {"C": C, "gamma": g, "class_weight": cw}
             combos.append((name, {
-                "SVM_PARAMS": {"C": C, "gamma": g},
+                "SVM_PARAMS": params,
                 "MIN_AGRI_PROB": th,
                 "SIEVE_MIN_SIZE": sv,
             }))
@@ -34,13 +36,15 @@ def generate_param_combinations(model_choice):
         n_estimators = [100, 200, 400]
         depths = [6, 8, 10, 12]
         leaves = [1, 2, 4]
-        for ne, md, ml, th, sv in product(n_estimators, depths, leaves, thresholds, sieves):
-            name = f"ne-{ne}_md-{md}_ml-{ml}_th-{th}_sieve-{sv}"
+        class_weights = [None, "balanced"]
+        for ne, md, ml, cw, th, sv in product(n_estimators, depths, leaves, class_weights, thresholds, sieves):
+            name = f"ne-{ne}_md-{md}_ml-{ml}_cw-{cw}_th-{th}_sieve-{sv}"
             combos.append((name, {
                 "RF_PARAMS": {
                     "n_estimators": ne,
                     "max_depth": md,
                     "min_samples_leaf": ml,
+                    "class_weight": cw,
                 },
                 "MIN_AGRI_PROB": th,
                 "SIEVE_MIN_SIZE": sv,
