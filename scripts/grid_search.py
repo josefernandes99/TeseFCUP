@@ -12,17 +12,16 @@ from itertools import product
 from config import LABELS_FILE, ROUNDS_DIR
 import config as cfg
 from a3_phase1_active_learning_round import active_learning_round
-from evaluation import evaluate_model
 
 
 def generate_param_combinations(model_choice):
     """Return a list of (name, params) tuples for the given model."""
-    thresholds = [0.5]
-    sieves = [0, 5]
+    thresholds = [0.55, 0.6, 0.65]
+    sieves = [0, 2, 3, 5]
     combos = []
     if model_choice.lower() == "svm":
-        Cs = [0.1, 1]
-        gammas = ["auto", 0.1]
+        Cs = [1, 3, 10, 30]
+        gammas = ["auto", "scale", 0.001]
         class_weights = [None, "balanced"]
         for C, g, cw, th, sv in product(Cs, gammas, class_weights, thresholds, sieves):
             name = f"C-{C}_gamma-{g}_cw-{cw}_th-{th}_sieve-{sv}_"
@@ -62,6 +61,8 @@ def run_grid_search(model_choice):
 
     for idx, (name, params) in enumerate(combos, 1):
         print(f"\n=== Combination {idx}/{len(combos)} ===")
+        print("Current Round is ", name)
+
         out_dir = os.path.join(ROUNDS_DIR, f"grid_{model_choice}_{name}")
 
         # backup current settings
@@ -86,19 +87,22 @@ def run_grid_search(model_choice):
             shutil.rmtree(src_dir)
 
         # run a training round without requesting extra labels or prediction CSV
-        active_learning_round(round_num, LABELS_FILE, model_choice, request_labels=False, save_preds=False)
+        metrics = active_learning_round(
+            round_num,
+            LABELS_FILE,
+            model_choice,
+            request_labels=False,
+            save_preds=False,
+            return_metrics=True,
+        )
 
         if os.path.exists(out_dir):
             import shutil
             shutil.rmtree(out_dir)
         os.rename(src_dir, out_dir)
 
-        # evaluate if possible
-        model_path = os.path.join(out_dir, f"model_round_{round_num}.pkl")
-        if os.path.exists(model_path):
-            from joblib import load
-            model = load(model_path)
-            metrics = evaluate_model(model)
+        # save metrics if available
+        if metrics:
             with open(os.path.join(out_dir, "metrics.json"), "w") as jf:
                 json.dump(metrics or {}, jf, indent=2)
 

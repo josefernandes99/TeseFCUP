@@ -14,8 +14,15 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 from memory_watcher import free_unused_memory
-from config import RAW_DATA_DIR, ROUNDS_DIR, DATA_DIR, MIN_AGRI_PROB, CANDIDATE_PROB_LOWER, SIEVE_MIN_SIZE
-from features import load_cached_features, feature_cache_path
+from config import (
+    RAW_DATA_DIR,
+    ROUNDS_DIR,
+    DATA_DIR,
+    MIN_AGRI_PROB,
+    CANDIDATE_PROB_LOWER,
+    SIEVE_MIN_SIZE,
+)
+from features import add_derived_features
 from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
 from rasterio.features import sieve
 
@@ -58,8 +65,8 @@ def classify_tile(tile_path, model):
     Returns the single‐band prediction array and original profile.
     """
     with rasterio.open(tile_path) as src:
-        cache_path = feature_cache_path(tile_path)
-        img, _, _ = load_cached_features(cache_path, arr=src.read().astype(np.float32))
+        raw = src.read().astype(np.float32)
+        img, _ = add_derived_features(raw)
         b, h, w = img.shape
         X = img.reshape(b, -1).T        # (h*w, bands)
         probs = model.predict_proba(X)[:,1].reshape(h, w)

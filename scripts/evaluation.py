@@ -16,7 +16,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")
 import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
-from al_shared import extract_features_from_label, preload_tiles
+from al_shared import extract_features_from_label
 from config import EVALUATE_FILE, MIN_AGRI_PROB
 
 def evaluate_model(model, eval_file=EVALUATE_FILE, out_dir=None):
@@ -45,8 +45,6 @@ def evaluate_model(model, eval_file=EVALUATE_FILE, out_dir=None):
     if not rows:
         print("No evaluation labels found.")
         return None
-    tiles = sorted({r["tile"] for r in rows})
-    preload_tiles(tiles)
     X, y = [], []
     for r in rows:
         feats = extract_features_from_label(r)

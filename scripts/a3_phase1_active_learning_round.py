@@ -17,6 +17,7 @@ from collections import defaultdict
 import time
 import datetime
 import json
+from operator import itemgetter
 from pyproj import Transformer
 
 import numpy as np
@@ -53,13 +54,9 @@ import config as cfg
 from evaluation import evaluate_model
 
 from a2_phase1_initial_labeling import generate_grids_for_all_tiles
-from features import (
-    load_cached_features,
-    get_normalizers,
-    compute_normalizers,
-    feature_cache_path,
-)
-from al_shared import preload_tiles, extract_features_from_label
+from features import add_derived_features
+from al_shared import extract_features_from_label
+
 
 
 # -----------------------------------------------------------------------------
@@ -168,21 +165,15 @@ def train_resnet(net, x_t, y_t):
 
 
 def train_model(choice, X, y):
-    """Train model using global standardization stats."""
-    _, feat_means, feat_std = get_normalizers()
-    # If the saved normalizer file is out of date (e.g. feature set changed),
-    # recompute statistics so that their length matches the feature dimension.
-    if feat_means.shape[0] != X.shape[1]:
-        _, feat_means, feat_std = compute_normalizers()
-        if feat_means.shape[0] != X.shape[1]:
-            raise ValueError(
-                "Feature count mismatch between data and normalizers. "
-                "Delete cached feature stacks and normalizers.csv and rerun."
-            )
+    """Train model using per-feature statistics from the training data."""
+    feat_means = np.nanmean(X, axis=0).astype(np.float32)
+    feat_std = np.nanstd(X, axis=0).astype(np.float32)
+    feat_std[feat_std == 0] = 1.0
     inds = np.where(np.isnan(X))
     if inds[0].size:
+        X = X.copy()
         X[inds] = np.take(feat_means, inds[1])
-    Xs = (X - feat_means) / (feat_std + 1e-6)
+    Xs = (X - feat_means) / feat_std
 
     c = choice.lower()
     if c == "svm":
@@ -225,8 +216,8 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
     """Run inference on a tile and optionally update a progress bar."""
     tile_name = os.path.basename(tile_path)
     with rasterio.open(tile_path) as src:
-        cache_path = feature_cache_path(tile_path)
-        arr, _, _ = load_cached_features(cache_path, arr=src.read().astype(np.float32))
+        raw = src.read().astype(np.float32)
+        arr, _ = add_derived_features(raw)
         b, H, W = arr.shape
         X     = arr.reshape(b, -1).T                # (H*W, bands)
         probs = model.predict_proba(X)[:, 1]        # bulk proba
@@ -429,6 +420,8 @@ def active_learning_round(
     request_labels=True,
     out_dir=None,
     save_preds=True,
+    return_metrics=False,
+    top_n_predictions=None,
 ):
     """Run one active learning round.
 
@@ -446,6 +439,15 @@ def active_learning_round(
     out_dir : str, optional
         Directory to write round outputs to. If None, defaults to
         ``ROUNDS_DIR/round_<round_num>``.
+    save_preds : bool, optional
+        If False, don't write predictions.csv.
+    return_metrics : bool, optional
+        If True, return the evaluation metrics instead of the candidate label
+        file. Metrics are also returned whenever ``save_preds`` is False or
+        ``request_labels`` is False.
+    top_n_predictions : int or None, optional
+        If given, only the ``top_n_predictions`` most uncertain predictions
+        (by |p-0.5|) are written to predictions.csv.
     """
     print(f"\n=== Starting Active Learning Round {round_num} ===")
     rnd_dir = out_dir or os.path.join(ROUNDS_DIR, f"round_{round_num}")
@@ -457,8 +459,6 @@ def active_learning_round(
     if len(rows) <= 1:
         print("Not enough labels; aborting.")
         return None
-    tiles = sorted({r["tile"] for r in rows})
-    preload_tiles(tiles)
     X, y = [], []
     for r in rows:
         feats = extract_features_from_label(r)
@@ -504,6 +504,12 @@ def active_learning_round(
     print(f"Total pixels inferred: {len(preds)}")
     print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
 
+    # Optionally keep only top-N predictions by uncertainty
+    if top_n_predictions is not None:
+        prob_get = itemgetter(5)
+        preds.sort(key=lambda r: abs(prob_get(r) - 0.5), reverse=True)
+        preds = preds[:top_n_predictions]
+
     # outputs
     if save_preds:
         save_predictions(rnd_dir, preds)
@@ -523,9 +529,9 @@ def active_learning_round(
             tbl.add_row(k, f"{v:.4f}" if isinstance(v, float) else str(v))
         Console().print(tbl)
 
-    if not request_labels or not save_preds:
+    if return_metrics or not save_preds or not request_labels:
         print(f"Round {round_num} complete (no candidate labeling).")
-        return None
+        return metrics
 
     tmp = candidate_selection_from_csv(os.path.join(rnd_dir, "predictions.csv"), rnd_dir, round_num)
     print(f"Round {round_num} complete; labels at {tmp}")

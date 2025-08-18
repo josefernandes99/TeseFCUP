@@ -103,6 +103,7 @@ def active_learning_loop(
     else:
         mchoice = model_choice
 
+
     initialize_temp_labels()
     init_params = dict(user_params) if user_params else {}
 
@@ -118,18 +119,96 @@ def active_learning_loop(
         combos = [(name, init_params)]
 
     for r in range(start_round, nr + 1):
-        combo_names = []
-        tmp_files = []
-        for name, params in combos:
+        if use_grid_search:
+            base_min = cfg.MIN_AGRI_PROB
+            base_sieve = cfg.SIEVE_MIN_SIZE
+            base_svm = cfg.SVM_PARAMS.copy()
+            base_rf = cfg.RF_PARAMS.copy()
+
+            results = []
+            for name, params in combos:
+                combo_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", name)
+
+                # backup current settings
+                old_min = cfg.MIN_AGRI_PROB
+                old_sieve = cfg.SIEVE_MIN_SIZE
+                old_svm = cfg.SVM_PARAMS.copy()
+                old_rf = cfg.RF_PARAMS.copy()
+
+                # apply params
+                cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
+                cfg.SIEVE_MIN_SIZE = params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
+                if "SVM_PARAMS" in params:
+                    cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
+                if "RF_PARAMS" in params:
+                    cfg.RF_PARAMS.update(params["RF_PARAMS"])
+
+                metrics = active_learning_round(
+                    r,
+                    TEMP_LABELS_FILE,
+                    mchoice,
+                    request_labels=False,
+                    out_dir=combo_dir,
+                    save_preds=False,
+                    return_metrics=True,
+                )
+                results.append((name, params, metrics))
+
+                # restore
+                cfg.MIN_AGRI_PROB = old_min
+                cfg.SIEVE_MIN_SIZE = old_sieve
+                cfg.SVM_PARAMS = old_svm
+                cfg.RF_PARAMS = old_rf
+
+            # restore to baseline before scoring
+            cfg.MIN_AGRI_PROB = base_min
+            cfg.SIEVE_MIN_SIZE = base_sieve
+            cfg.SVM_PARAMS = base_svm
+            cfg.RF_PARAMS = base_rf
+
+            def score(metrics):
+                return metrics.get("macro_f1", metrics.get("auc", 0.0)) if metrics else 0.0
+
+            print("Grid search results:")
+            best_idx = 0
+            best_score = -float("inf")
+            for idx, (name, params, metrics) in enumerate(results):
+                sc = score(metrics)
+                print(f" - {name}: score={sc:.4f}, metrics={metrics}")
+                if sc > best_score:
+                    best_idx = idx
+                    best_score = sc
+
+            best_name, best_params, best_metrics = results[best_idx]
+            print(f"Selected combination: {best_name} (score={best_score:.4f})")
+
+            # apply best params
+            cfg.MIN_AGRI_PROB = best_params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
+            cfg.SIEVE_MIN_SIZE = best_params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
+            if "SVM_PARAMS" in best_params:
+                cfg.SVM_PARAMS.update(best_params["SVM_PARAMS"])
+            if "RF_PARAMS" in best_params:
+                cfg.RF_PARAMS.update(best_params["RF_PARAMS"])
+
+            out_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", best_name)
+            tmp = active_learning_round(
+                r,
+                TEMP_LABELS_FILE,
+                mchoice,
+                request_labels=r < nr,
+                out_dir=out_dir,
+                save_preds=True,
+            )
+            chosen_params = best_params
+        else:
+            name, params = combos[0]
             combo_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", name)
 
-            # backup current settings
             old_min = cfg.MIN_AGRI_PROB
             old_sieve = cfg.SIEVE_MIN_SIZE
             old_svm = cfg.SVM_PARAMS.copy()
             old_rf = cfg.RF_PARAMS.copy()
 
-            # apply params
             cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
             cfg.SIEVE_MIN_SIZE = params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
             if "SVM_PARAMS" in params:
@@ -145,31 +224,15 @@ def active_learning_loop(
                 out_dir=combo_dir,
             )
 
-            # restore
             cfg.MIN_AGRI_PROB = old_min
             cfg.SIEVE_MIN_SIZE = old_sieve
             cfg.SVM_PARAMS = old_svm
             cfg.RF_PARAMS = old_rf
-            combo_names.append(name)
-            tmp_files.append(tmp)
+            chosen_params = params
 
         if r < nr:
-            if use_grid_search:
-                print("Available combinations:")
-                for n in combo_names:
-                    print(f" - {n}")
-                chosen = input("what combination to use? => ").strip()
-                if chosen not in combo_names:
-                    print("Invalid choice; defaulting to first")
-                    chosen = combo_names[0]
-                idx = combo_names.index(chosen)
-                newfile = tmp_files[idx]
-                chosen_params = combos[idx][1]
-            else:
-                newfile = tmp_files[0]
-                chosen_params = combos[0][1]
-            if newfile:
-                append_temp_labels(newfile)
+            if tmp:
+                append_temp_labels(tmp)
             if checkpoint_cb:
                 checkpoint_cb(r + 1, nr, mchoice, chosen_params)
 

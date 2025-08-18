@@ -47,7 +47,7 @@ def clear_checkpoint():
 
 def main():
     print("=== Starting PythonProject Pipeline ===\n")
-    print("Note: computing 5x5 GLCM textures and global normalization can be slow; this is the main start-up cost.\n")
+    print("Note: pipeline now runs without GLCM textures or global normalization.\n")
     ensure_labels_file()
     ensure_evaluate_file()
     mw = None
