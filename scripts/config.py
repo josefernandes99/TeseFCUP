@@ -79,6 +79,7 @@ SPLIT_RANDOM_SEED = 42      # Used when SPLIT_SEED_MODE == "fixed"
 # Cross-validation
 CV_FOLDS = 5               # 3–5 typical; more folds = more compute
 CV_AUTO_REDUCE = True      # Reduce folds to ≥2 per minority class when data is small
+VAL_REPEATS = 1            # Number of repeated validation splits for reporting (>=1). Seeds recorded.
 
 # Calibration
 CALIBRATION_METHOD = "sigmoid"  # "sigmoid" fast; "isotonic" needs more data

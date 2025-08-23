@@ -41,8 +41,7 @@ def stratified_train_val_test_indices(
         val_frac = cfg.VAL_FRACTION
     if test_frac is None:
         test_frac = cfg.TEST_FRACTION
-    if random_state is None:
-        random_state = cfg.SPLIT_RANDOM_SEED
+    # Preserve caller-provided random_state; None means use library randomness.
 
     # Normalize fractions to not exceed 1.0
     total = train_frac + val_frac + test_frac
@@ -102,4 +101,3 @@ def build_feature_matrix(rows: List[Dict[str, str]]) -> Tuple[np.ndarray, np.nda
     if not X:
         return np.empty((0, 0), dtype=np.float32), np.empty((0,), dtype=np.int64)
     return np.asarray(X, dtype=np.float32), np.asarray(y, dtype=np.int64)
-

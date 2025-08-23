@@ -9,12 +9,13 @@ from typing import Dict, Tuple, Optional
 import numpy as np
 import rasterio
 from pyproj import Transformer
+from affine import Affine
 
 from config import RAW_DATA_DIR, FEATURE_CACHE_DIR, FEATURE_CACHE_ENABLED
 from features import add_derived_features
 
 # tile cache: tile name -> (features array, transform, CRS)
-_tile_cache: Dict[str, Tuple[np.ndarray, rasterio.Affine, rasterio.crs.CRS]] = {}
+_tile_cache: Dict[str, Tuple[np.ndarray, Affine, rasterio.crs.CRS]] = {}
 
 __all__ = [
     "extract_features_from_label",
@@ -49,7 +50,7 @@ def extract_features_from_label(row: Dict[str, str]):
     return None
 
 
-def get_tile_features(tile_name: str) -> Optional[Tuple[np.ndarray, rasterio.Affine, rasterio.crs.CRS]]:
+def get_tile_features(tile_name: str) -> Optional[Tuple[np.ndarray, Affine, rasterio.crs.CRS]]:
     """Return cached per-tile features, transform and CRS; load if needed."""
     tif_path = os.path.join(RAW_DATA_DIR, tile_name)
     if not os.path.exists(tif_path):
@@ -61,9 +62,9 @@ def get_tile_features(tile_name: str) -> Optional[Tuple[np.ndarray, rasterio.Aff
             try:
                 data = np.load(cache_path, allow_pickle=True)
                 arr = data["arr"]
-                transform = rasterio.Affine(*data["transform"]) if "transform" in data else None
+                transform = Affine(*data["transform"]) if "transform" in data else None
                 crs_wkt = data["crs_wkt"].item() if "crs_wkt" in data else None
-                crs = rasterio.crs.CRS.from_wkt(wkt=crs_wkt) if crs_wkt else None
+                crs = rasterio.crs.CRS.from_wkt(wkt=str(crs_wkt)) if crs_wkt else None
                 _tile_cache[tile_name] = (arr, transform, crs)
                 return _tile_cache[tile_name]
             except Exception:

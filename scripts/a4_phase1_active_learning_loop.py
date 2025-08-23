@@ -69,7 +69,7 @@ def collect_user_hyperparams(model_choice):
     th = input("MIN_AGRI_PROB [0.3,0.4,0.5,0.6]? => ").strip() or str(cfg.MIN_AGRI_PROB)
     sv = input("SIEVE_MIN_SIZE [0,2,5,10,20]? => ").strip() or str(cfg.SIEVE_MIN_SIZE)
     # Feature set selection
-    print("Feature set => 1=base, 2=base+temporal, 3=base+textures, 4=base+temporal+textures, 5=full")
+    print("Feature set => 1=base (working), 2=base+temporal (currently unsupported), 3=base+textures (currently unsupported), 4=base+temporal+textures (currently unsupported), 5=full (currently unsupported)")
     fs_map = {"1": "base", "2": "temporal_only", "3": "textures_only", "4": "temporal_textures", "5": "full"}
     fsel = input("=> ").strip()
     fset = fs_map.get(fsel, cfg.FEATURE_SET)
@@ -230,7 +230,7 @@ def active_learning_loop(
                 )
                 go = input("Proceed to candidate labeling for this round? [Y/N] => ").strip().lower()
                 if go.startswith("y"):
-                    pred_csv = os.path.join(out_dir, "predictions.csv")
+                    pred_csv = os.path.join(str(out_dir), "predictions.csv")
                     tmp = candidate_selection_from_csv(pred_csv, out_dir, r)
                 else:
                     tmp = None

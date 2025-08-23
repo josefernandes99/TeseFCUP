@@ -31,10 +31,8 @@ class MemoryWatcher:
         if torch and torch.cuda.is_available():
             torch.cuda.empty_cache()
         after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-        print(
-            f"[MemoryWatcher] Freed memory: {before:.2f} MB -> {after:.2f} MB",
-            flush=True,
-        )
+        # Live update in console; full sequence in logs (CR→NL in tee)
+        print(f"\r[MemoryWatcher] Freed memory: {before:.2f} MB -> {after:.2f} MB", end="", flush=True)
 
     def _watch(self):
         while not self._stop_event.is_set():
@@ -50,10 +48,8 @@ def free_unused_memory():
     if torch and torch.cuda.is_available():
         torch.cuda.empty_cache()
     after = psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
-    print(
-        f"[MemoryWatcher] Freed memory: {before:.2f} MB -> {after:.2f} MB",
-        flush=True,
-    )
+    # Live update in console; full sequence in logs (CR→NL in tee)
+    print(f"\r[MemoryWatcher] Freed memory: {before:.2f} MB -> {after:.2f} MB", end="", flush=True)
 
 
 def start_memory_watcher(threshold_percent=80, check_interval=5):

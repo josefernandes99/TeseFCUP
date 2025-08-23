@@ -17,7 +17,6 @@ from memory_watcher import free_unused_memory
 from config import (
     RAW_DATA_DIR,
     ROUNDS_DIR,
-    DATA_DIR,
     MIN_AGRI_PROB,
     CANDIDATE_PROB_LOWER,
     SIEVE_MIN_SIZE,
@@ -30,7 +29,8 @@ from config import (
 )
 from features import add_derived_features
 from scipy.ndimage import binary_closing, binary_fill_holes, label as ndlabel
-from rasterio.features import sieve
+from rasterio.features import sieve, shapes
+import config as cfg
 
 # Note: small-patch filtering via rasterio.sieve is now performed during each
 # active learning round. The final postprocessing step simply runs the last
@@ -112,7 +112,7 @@ def classify_tile(tile_path, model, th=None, sieve_size=None, morph_open=False, 
                     mask[comp] = False
                     mask[comp & crop] = True
         if ssz > 0:
-            mask = sieve(mask.astype("uint8"), size=ssz, connectivity=8).astype(bool)
+            mask = sieve(mask.astype("uint8"), size=int(ssz), connectivity=8).astype(bool)
         cleaned = (mask & (probs >= thr)).astype(np.uint8)
         return cleaned, src.profile
 
@@ -124,7 +124,12 @@ def save_geotiff(path_out, data, profile):
     )
     with rasterio.open(path_out, "w", **profile) as dst:
         dst.write(data, 1)
-    print(f"Saved geotiff => {path_out}")
+    # Live update (console) with base filename; full sequential logs preserved
+    try:
+        base = os.path.basename(path_out)
+    except Exception:
+        base = path_out
+    print(f"\rSaved geotiff => {base}", end="", flush=True)
 
 def process_tile(tfile, model, th=None, sieve_size=None, morph_open=False, morph_k=3, suffix=None, out_dir=None):
     """Classify one tile and save overlay GeoTIFF."""
@@ -244,18 +249,18 @@ def postprocessing():
             sf.write(f"Min tile %: {min_pct:.2f}\n")
             sf.write(f"Max tile %: {max_pct:.2f}\n")
         # Metrics and plots similar to per-round statistics
+        # Seed threshold variables before try/finally so linters see them as defined.
+        old_th = cfg.MIN_AGRI_PROB
+        th_local = old_th
         try:
-            import config as cfg
-            from evaluation import evaluate_model
+            from evaluation import evaluate_model_repeated as evaluate_model
             # Determine threshold from tag if present
-            old_th = cfg.MIN_AGRI_PROB
-            th = old_th
             if tag and isinstance(tag, str) and tag.startswith("th"):
                 try:
-                    th = float(tag.split("_")[0][2:])
+                    th_local = float(tag.split("_")[0][2:])
                 except Exception:
-                    th = old_th
-            cfg.MIN_AGRI_PROB = th
+                    th_local = old_th
+            cfg.MIN_AGRI_PROB = th_local
             _ = evaluate_model(model, out_dir=stats_dir)
         finally:
             try:
@@ -264,7 +269,6 @@ def postprocessing():
                 pass
         # Permutation feature importance with names
         try:
-            import config as cfg
             if getattr(cfg, "RUN_PERMUTATION_IMPORTANCE", False):
                 # Build eval set as in evaluation.py
                 from al_shared import extract_features_from_label
@@ -298,7 +302,9 @@ def postprocessing():
                         importances = pi.importances_mean
                         order = np.argsort(importances)[::-1]
                         exp_names = _names()
-                        names = [exp_names[i] if i < len(exp_names) else f"f{i}" for i in range(importances.size)]
+                        if len(exp_names) != importances.size:
+                            raise RuntimeError(f"Final FI naming mismatch: expected {importances.size}, have {len(exp_names)}")
+                        names = exp_names
                         with open(os.path.join(stats_dir, 'feature_importance.txt'), 'w') as f:
                             for idx in order:
                                 f.write(f"{names[idx]}\t{importances[idx]:.6f}\n")
@@ -307,7 +313,7 @@ def postprocessing():
                             matplotlib.use('Agg', force=True)
                             import matplotlib.pyplot as plt
                             topk = min(25, len(order))
-                            plt.figure(figsize=(8, max(3, topk*0.3)))
+                            plt.figure(figsize=(8, max(3.0, topk*0.3)))
                             plt.barh(range(topk), importances[order][:topk][::-1])
                             plt.yticks(range(topk), [names[i] for i in order][:topk][::-1], fontsize=7)
                             plt.tight_layout()
@@ -315,13 +321,15 @@ def postprocessing():
                             plt.close()
                         except Exception as e:
                             print(f"Final feature importance plot failed: {e}")
+                            raise
         except Exception as e:
-            print(f"Final permutation importance skipped: {e}")
+            # Halt pipeline on final FI failure as requested
+            raise
         # Config snapshot
         try:
-            import json as _json, config as cfg
+            import json as _json
             snap = {
-                "MIN_AGRI_PROB": th,
+                "MIN_AGRI_PROB": th_local,
                 "SIEVE_MIN_SIZE": cfg.SIEVE_MIN_SIZE,
                 "FINAL_SWEEP_ENABLED": FINAL_SWEEP_ENABLED,
             }
@@ -343,7 +351,7 @@ def postprocessing():
             for tif in tile_files:
                 try:
                     with rasterio.open(tif) as src:
-                        cleaned, _ = classify_tile(tif, model, th=th, sieve_size=cfg.SIEVE_MIN_SIZE)
+                        cleaned, _ = classify_tile(tif, model, th=th_local, sieve_size=cfg.SIEVE_MIN_SIZE)
                         for geom, val in shapes(cleaned.astype('uint8'), mask=cleaned.astype(bool), transform=src.transform):
                             if val != 1:
                                 continue

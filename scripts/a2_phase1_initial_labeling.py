@@ -342,28 +342,41 @@ def create_balanced_subset():
 def manual_labeling(num_labels):
     labels = load_labels()
     added = 0
+    skipped = 0
+    agri_added = 0
+    non_added = 0
     w, h = get_patch_dimensions()
-    for _ in range(num_labels):
+    for i in range(num_labels):
         try:
             lat = float(input("Enter latitude: "))
             lon = float(input("Enter longitude: "))
         except ValueError:
             print("Invalid. Skip.")
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_labels} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         if duplicate_exists(lat, lon, labels):
             print("Duplicate. Skip.")
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_labels} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         tile = get_tile_for_coordinate(lat, lon)
         if not tile:
             print("No tile for coordinate; skipping.")
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_labels} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         print("Label? (1=Agri,2=Non,3=Skip)")
         ui = input("=> ").strip()
         if ui == "3":
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_labels} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if not lab:
             print("Invalid label. Skip.")
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_labels} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         eid  = f"manual_{int(random.random()*1e6)}"
         note = prompt_note()
@@ -380,7 +393,15 @@ def manual_labeling(num_labels):
                 x, y = transformer.transform(lon, lat)
         generate_kml_for_patch(y, x, w, h)
         added += 1
+        if lab.lower().startswith("agri"):
+            agri_added += 1
+        else:
+            non_added += 1
+        print(f"\rLabeling progress {i+1}/{num_labels} (added={added}, skipped={skipped})", end="", flush=True)
     export_labels_kml()
+    # Session summary
+    total_now = len(load_labels())
+    print(f"\nSession summary: added={added} (agri={agri_added}, non={non_added}), skipped={skipped}, total_labels={total_now}")
     return added
 
 
@@ -389,13 +410,15 @@ def global_sampling_labeling(num_patches):
     roi = compute_roi_bbox()
     lons = [p[0] for p in roi]; lats = [p[1] for p in roi]
     w, h = get_patch_dimensions()
-    added = 0
-    for _ in range(num_patches):
+    added = 0; skipped = 0; agri_added = 0; non_added = 0
+    for i in range(num_patches):
         lat = random.uniform(min(lats), max(lats))
         lon = random.uniform(min(lons), max(lons))
         tile = get_tile_for_coordinate(lat, lon)
         if not tile:
             print("No tile for coordinate; skipping.")
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_patches} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         # convert to tile CRS for visualization
         with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
@@ -407,10 +430,14 @@ def global_sampling_labeling(num_patches):
         print(f"Open KML {CANDIDATE_KML} to view patch.")
         ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
         if ui=="3":
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_patches} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         lab = "Agricultural" if ui=="1" else "Non-Agricultural" if ui=="2" else None
         if not lab:
             print("Invalid. Skip.")
+            skipped += 1
+            print(f"\rLabeling progress {i+1}/{num_patches} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         eid  = f"global_{int(random.random()*1e6)}"
         note = prompt_note()
@@ -419,7 +446,13 @@ def global_sampling_labeling(num_patches):
         print(f"Added global label at ({lat},{lon}).")
         export_labels_kml()
         added += 1
+        if lab.lower().startswith("agri"):
+            agri_added += 1
+        else:
+            non_added += 1
+        print(f"\rLabeling progress {i+1}/{num_patches} (added={added}, skipped={skipped})", end="", flush=True)
     export_labels_kml()
+    print(f"\nSession summary: added={added} (agri={agri_added}, non={non_added}), skipped={skipped}, total_labels={len(load_labels())}")
     return added
 
 
@@ -544,13 +577,18 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
         print(f"{list_name} list empty.")
         return 0
     added = 0
+    skipped = 0
+    agri_added = 0
+    non_added = 0
     w, h = get_patch_dimensions()
-    for r in rows[:max_count]:
+    for idx, r in enumerate(rows[:max_count], 1):
         tile = r.get('tile')
         try:
             la = float(r.get('lat')); lo = float(r.get('lon'))
             row = int(r.get('row')); col = int(r.get('col'))
         except Exception:
+            skipped += 1
+            print(f"\r{list_name} progress {idx}/{max_count} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         # convert to tile CRS for visualization
         try:
@@ -562,13 +600,17 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
         except Exception:
             continue
         generate_kml_for_patch(y, x, w, h)
-        print(f"Open KML {CANDIDATE_KML} to view candidate from {list_name}.")
+        print(f"\rOpen KML {CANDIDATE_KML} to view candidate from {list_name}.", end="", flush=True)
         ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
         if ui == "3":
+            skipped += 1
+            print(f"\r{list_name} progress {idx}/{max_count} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if not lab:
             print("Invalid choice.")
+            skipped += 1
+            print(f"\r{list_name} progress {idx}/{max_count} (added={added}, skipped={skipped})", end="", flush=True)
             continue
         note = prompt_note()
         eid = f"{list_name}_{int(random.random()*1e6)}"
@@ -576,6 +618,12 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
             csv.writer(f).writerow([eid, la, lo, tile, lab, note])
         export_labels_kml()
         _remove_pixel_from_lists(tile, row, col, la, lo)
-        print(f"Labeled from {list_name}: {tile} r={row},c={col}")
+        print(f"\rLabeled from {list_name}: {tile} r={row},c={col}", end="", flush=True)
         added += 1
+        if lab.lower().startswith("agri"):
+            agri_added += 1
+        else:
+            non_added += 1
+        print(f"\r{list_name} progress {idx}/{max_count} (added={added}, skipped={skipped})", end="", flush=True)
+    print(f"\nSession summary ({list_name}): added={added} (agri={agri_added}, non={non_added}), skipped={skipped}")
     return added

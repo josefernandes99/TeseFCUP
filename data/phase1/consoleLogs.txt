@@ -1,0 +1,179 @@
+Exported 99 labels to KML => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\labels.kml
+Initializing Google Earth Engine API...
+Earth Engine API initialized successfully!
+Raw data already present; skipping download.
+Exported 99 labels to KML => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\labels.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile0_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile1_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile10_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile11_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile12_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile13_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile14_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile15_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile16_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile17_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile18_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile19_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile2_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile20_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile21_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile22_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile23_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile24_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile25_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile26_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile27_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile28_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile29_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile3_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile30_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile31_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile32_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile33_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile34_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile35_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile36_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile37_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile38_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile39_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile4_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile40_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile41_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile42_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile43_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile44_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile5_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile6_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile7_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile8_grid.kml
+Grid KML generated => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\grids\Sao_Nicolau_tile9_grid.kml
+
+Current labels: total=99, agri=49, ratio=0.49
+Initial labeling complete; proceed to AL rounds.
+Choose model => 1=ResNet, 2=SVM, 3=RandomForest
+Feature set => 1=base (working), 2=base+temporal (currently unsupported), 3=base+textures (currently unsupported), 4=base+temporal+textures (currently unsupported), 5=full (currently unsupported)
+Created temp_labels.csv from master labels => C:\Users\Vitorino\PycharmProjects\PythonProject\labels\phase1\temp_labels.csv
+
+=== Starting Active Learning Round 1 ===
+Training data shape: (99, 37), model: SVM
+Model saved to C:\Users\Vitorino\PycharmProjects\PythonProject\data\phase1\rounds\round_1\C-3_gamma-auto_cw-balanced_th-0.4_sieve-10_feats-base\model_round_1.pkl
+
+[MemoryWatcher] Freed memory: 1014.49 MB -> 1014.49 MB[?25l
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:01[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:01[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:01[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:01[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:01[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:01[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:02[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:02[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:02[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:02[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:03[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:03[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:03[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:03[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:03[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:03[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:04[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:05[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:06[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:07[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:07[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:07[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:07[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:08[0m [36m-:--:--[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  4%[0m [33m0:00:08[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  4%[0m [33m0:00:08[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 11%[0m [33m0:00:09[0m [36m0:00:14[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 13%[0m [33m0:00:10[0m [36m0:00:12[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 13%[0m [33m0:00:10[0m [36m0:00:12[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 16%[0m [33m0:00:10[0m [36m0:00:16[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 16%[0m [33m0:00:11[0m [36m0:00:16[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 20%[0m [33m0:00:12[0m [36m0:00:15[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 27%[0m [33m0:00:13[0m [36m0:00:13[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 31%[0m [33m0:00:13[0m [36m0:00:12[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 38%[0m [33m0:00:14[0m [36m0:00:10[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 40%[0m [33m0:00:14[0m [36m0:00:10[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━[0m [35m 47%[0m [33m0:00:14[0m [36m0:00:08[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━[0m [35m 51%[0m [33m0:00:15[0m [36m0:00:08[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━[0m [35m 58%[0m [33m0:00:16[0m [36m0:00:06[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━[0m [35m 62%[0m [33m0:00:17[0m [36m0:00:06[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━[0m [35m 69%[0m [33m0:00:17[0m [36m0:00:05[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:17[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:17[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:17[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:17[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:17[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:18[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:18[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:18[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:18[0m [36m0:00:04[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:18[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:18[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:19[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:19[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:19[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:19[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━[0m [35m 80%[0m [33m0:00:20[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━[0m [35m 82%[0m [33m0:00:20[0m [36m0:00:03[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━[0m [35m 89%[0m [33m0:00:20[0m [36m0:00:02[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━[0m [35m 91%[0m [33m0:00:20[0m [36m0:00:02[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━[0m [35m 93%[0m [33m0:00:21[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━[0m [35m 93%[0m [33m0:00:21[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━[0m [35m 93%[0m [33m0:00:21[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━[0m [35m 96%[0m [33m0:00:21[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━[0m [35m 96%[0m [33m0:00:21[0m [36m0:00:01[0m
+[2K[1;36mRunning inference[0m [38;2;114;156;31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m100%[0m [33m0:00:21[0m [36m0:00:00[0m
+[?25hTotal pixels inferred: 11037763
+Inference completed in 0:00:21
+Predictions written to C:\Users\Vitorino\PycharmProjects\PythonProject\data\phase1\rounds\round_1\C-3_gamma-auto_cw-balanced_th-0.4_sieve-10_feats-base\predictions.csv
+[?25l
+[2K[1;36mPolygonizing tiles[0m [38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  0%[0m [33m0:00:00[0m [36m-:--:--[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m  7%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 11%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 13%[0m [33m0:00:00[0m [36m0:00:03[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 20%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 22%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 31%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m 36%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━━━━━━━━━[0m [35m 44%[0m [33m0:00:00[0m [36m0:00:02[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━━━━[0m [35m 51%[0m [33m0:00:00[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━━━━━━[0m [35m 58%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━━━━━━━━━━[0m [35m 64%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━━━━[0m [35m 71%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━━━━━━━[0m [35m 78%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;2;249;38;114m╸[0m[38;5;237m━━━━━[0m [35m 87%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m[38;5;237m━━[0m [35m 93%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;249;38;114m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m[38;5;237m╺[0m [35m 98%[0m [33m0:00:01[0m [36m0:00:01[0m
+[2K[1;36mPolygonizing tiles[0m [38;2;114;156;31m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m [35m100%[0m [33m0:00:01[0m [36m0:00:00[0m
+[?25h3054 agricultural polygons saved to C:\Users\Vitorino\PycharmProjects\PythonProject\data\phase1\rounds\round_1\C-3_gamma-auto_cw-balanced_th-0.4_sieve-10_feats-base\agricultural_patches_round_1.kml
+Pipeline failed: Seed must be between 0 and 2**32 - 1

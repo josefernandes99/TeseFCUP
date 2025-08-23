@@ -52,11 +52,11 @@ from config import (
     NOTE_OPTIONS,
 )
 import config as cfg
-from evaluation import evaluate_model
+from evaluation import evaluate_model_repeated as evaluate_model
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import get_scorer
 from splits import stratified_train_val_test_indices
-from features import current_feature_names
+from features import current_feature_names, get_reporting_ndvi_index
 
 from a2_phase1_initial_labeling import generate_grids_for_all_tiles
 from features import add_derived_features
@@ -253,9 +253,10 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
             transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
             xs, ys = transformer.transform(xs, ys)
 
-        if "NDVI" not in names:
-            raise RuntimeError("NDVI feature missing; aborting as required.")
-        ndvi_vals = arr[names.index("NDVI")].reshape(-1).astype(np.float32)
+        ndvi_idx = get_reporting_ndvi_index(names)
+        if ndvi_idx is None:
+            raise RuntimeError("NDVI feature missing (no NDVI_s* or NDVI); aborting as required.")
+        ndvi_vals = arr[ndvi_idx].reshape(-1).astype(np.float32)
         results = [
             [tile_name, int(r), int(c), float(lat), float(lon), float(p), float(ndvi)]
             for r, c, lat, lon, p, ndvi in zip(rows, cols, ys, xs, probs, ndvi_vals)
@@ -627,11 +628,9 @@ def active_learning_round(
                 importances = pi.importances_mean
                 order = np.argsort(importances)[::-1]
                 exp_names = current_feature_names()
-                if len(exp_names) == importances.size:
-                    names = exp_names
-                else:
-                    # Fallback: align as much as possible so names appear
-                    names = [exp_names[i] if i < len(exp_names) else f"f{i}" for i in range(importances.size)]
+                if len(exp_names) != importances.size:
+                    raise RuntimeError(f"Feature importance naming mismatch: expected {importances.size} features, have {len(exp_names)} names.")
+                names = exp_names
                 # write text
                 with open(os.path.join(stats_dir, 'feature_importance.txt'), 'w') as f:
                     for idx in order:
@@ -650,8 +649,10 @@ def active_learning_round(
                     plt.close()
                 except Exception as e:
                     print(f"Feature importance plot failed: {e}")
+                    raise
     except Exception as e:
-        print(f"Permutation importance skipped: {e}")
+        # Halt pipeline as requested when FI naming fails or other errors occur
+        raise
 
     # update persistent informative lists (highscore and probableAgri) whenever predictions are saved
     # so that assisted labeling lists are always available across modes
@@ -1048,6 +1049,10 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
         crank = {}
 
     tile_pick_counter = {}
+    labeled_total = 0
+    labeled_agri = 0
+    labeled_non = 0
+    skipped = 0
     for idx, (t, r, c, la, lo, p, ndvi) in enumerate(cands):
         generate_candidate_kml(t, r, c, kmlp)
         ent = -p*np.log(p + 1e-9) - (1-p)*np.log(1-p + 1e-9)
@@ -1076,10 +1081,11 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
                 kcount += 1
         tile_pick_counter[t] = tile_pick_counter.get(t, 0) + 1
         reason = f"uncertain H={ent:.2f}, dthr={dist_th:.2f}, ndvi={ndvi:.2f}, dens_k={kcount}, nld={nld}"
-        print(f"Candidate: {t} r={r},c={c}, p={p:.3f}, ndvi={ndvi:.3f} :: {reason}")
+        print(f"\rCandidate {idx+1}/{len(cands)}: {t} r={r},c={c}, p={p:.3f}, ndvi={ndvi:.3f} :: {reason}", end="", flush=True)
         ui = input("Label? (1=Agri,2=NonAgri,3=Skip): ").strip()
         if ui == "3":
-            print("Skipped.")
+            print("\rSkipped.", end="", flush=True)
+            skipped += 1
             continue
         lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if lab:
@@ -1092,7 +1098,13 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
                     f"{p:.6f}", f"{ent:.6f}", f"{abs(p-0.5):.6f}", cids[idx], csize.get(cids[idx], ""),
                     crank.get(idx, ""), tile_pick_counter[t], kcount, f"{dist_th:.6f}", f"{ndvi:.6f}", nld if nld != "" else "", nlc if nlc != "" else "", reason
                 ])
-            print("Label saved.")
+            labeled_total += 1
+            if lab.lower().startswith("agri"):
+                labeled_agri += 1
+            else:
+                labeled_non += 1
+            print("\rLabel saved.", end="", flush=True)
+    print(f"\nSession summary (AL round {round_num}): labeled={labeled_total} (agri={labeled_agri}, non={labeled_non}), skipped={skipped}")
     return tmp
 
 

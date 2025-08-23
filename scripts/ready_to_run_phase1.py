@@ -5,6 +5,8 @@ import os
 import sys
 import atexit
 import signal
+import shutil
+from glob import glob as _glob
 
 from a0_setup_check import setup_check
 from a1_phase1_data_download import download_data
@@ -25,6 +27,56 @@ STEP_ORDER = [
     "active_learning_loop",
     "postprocessing",
 ]
+def _clean_previous_outputs():
+    """Remove artifacts from previous runs to start fresh.
+    Deletes:
+    - Overlay TIFFs in RAW_DATA_DIR (e.g., *_overlay.tif, *_th*.tif)
+    - Everything inside data/phase1/rounds/ (subfolders and files)
+    - labels/phase1/finalLabels.csv and labels/phase1/temp_labels.csv
+    - Old root-level final_predictions*.csv and final_summary*.txt in data/phase1/
+    Note: Does NOT delete the checkpoint file; resume decision governs that.
+    """
+    try:
+        from config import RAW_DATA_DIR as _RAW, ROUNDS_DIR as _RDS, DATA_DIR as _DD, LABELS_DIR as _LD, FINAL_LABELS_FILE as _FL, TEMP_LABELS_FILE as _TL
+        # 1) Clean overlays left in raw
+        patterns = ["*_overlay.tif", "*_th*.tif"]
+        for pat in patterns:
+            for fp in _glob(os.path.join(_RAW, pat)):
+                try:
+                    os.remove(fp)
+                    print(f"Deleted overlay => {fp}")
+                except Exception as e:
+                    print(f"Overlay delete failed ({fp}): {e}")
+        # 2) Clean rounds directory (all content)
+        if os.path.exists(_RDS):
+            for name in os.listdir(_RDS):
+                p = os.path.join(_RDS, name)
+                try:
+                    if os.path.isdir(p):
+                        shutil.rmtree(p)
+                    else:
+                        os.remove(p)
+                    print(f"Deleted previous round artifact => {p}")
+                except Exception as e:
+                    print(f"Round cleanup failed ({p}): {e}")
+        # 3) Remove specific label working files
+        for fp in [_FL, _TL]:
+            try:
+                if os.path.exists(fp):
+                    os.remove(fp)
+                    print(f"Deleted labels artifact => {fp}")
+            except Exception as e:
+                print(f"Labels cleanup failed ({fp}): {e}")
+        # 4) Remove old final summaries at data root (legacy layout)
+        for pat in ["final_predictions*.csv", "final_summary*.txt"]:
+            for fp in _glob(os.path.join(_DD, pat)):
+                try:
+                    os.remove(fp)
+                    print(f"Deleted legacy final artifact => {fp}")
+                except Exception as e:
+                    print(f"Legacy final cleanup failed ({fp}): {e}")
+    except Exception as e:
+        print(f"Cleanup failed: {e}")
 
 def load_checkpoint():
     if os.path.exists(CHECKPOINT_FILE):
@@ -123,11 +175,15 @@ def main():
                 pass
 
         atexit.register(_cleanup_logs)
-        try:
-            signal.signal(signal.SIGINT, lambda *_: (_cleanup_logs(), sys.exit(1)))
-            signal.signal(signal.SIGTERM, lambda *_: (_cleanup_logs(), sys.exit(1)))
-        except Exception:
-            pass
+        # Register signal handlers; ignore environments where this isn't allowed
+        import contextlib
+        def _sig_handler(signum, frame):
+            _cleanup_logs()
+            sys.exit(1)
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGINT, _sig_handler)
+        with contextlib.suppress(Exception):
+            signal.signal(signal.SIGTERM, _sig_handler)
     except Exception as e:
         print(f"Log setup failed: {e}")
     ensure_labels_file()
@@ -147,8 +203,13 @@ def main():
             msg += "? (y/n) => "
             ans = input(msg).strip().lower()
             if not ans.startswith("y"):
+                # User chose not to resume: clean workspace and reset checkpoint for this run
+                _clean_previous_outputs()
                 clear_checkpoint()
                 cp = None
+        else:
+            # No checkpoint: perform workspace cleanup for a clean run
+            _clean_previous_outputs()
 
         start_step = cp["step"] if cp else STEP_ORDER[0]
 
