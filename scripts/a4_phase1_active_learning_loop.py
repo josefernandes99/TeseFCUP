@@ -4,7 +4,7 @@ import shutil
 import csv
 
 import config as cfg
-from a3_phase1_active_learning_round import active_learning_round
+from a3_phase1_active_learning_round import active_learning_round, candidate_selection_from_csv
 from grid_search import generate_param_combinations
 from config import LABELS_FILE, TEMP_LABELS_FILE
 
@@ -68,9 +68,15 @@ def collect_user_hyperparams(model_choice):
         parts.extend([f"ne-{ne}", f"md-{md}", f"ml-{ml}", f"cw-{cw_val}"])
     th = input("MIN_AGRI_PROB [0.3,0.4,0.5,0.6]? => ").strip() or str(cfg.MIN_AGRI_PROB)
     sv = input("SIEVE_MIN_SIZE [0,2,5,10,20]? => ").strip() or str(cfg.SIEVE_MIN_SIZE)
+    # Feature set selection
+    print("Feature set => 1=base, 2=base+temporal, 3=base+textures, 4=base+temporal+textures, 5=full")
+    fs_map = {"1": "base", "2": "temporal_only", "3": "textures_only", "4": "temporal_textures", "5": "full"}
+    fsel = input("=> ").strip()
+    fset = fs_map.get(fsel, cfg.FEATURE_SET)
     params["MIN_AGRI_PROB"] = float(th)
     params["SIEVE_MIN_SIZE"] = int(sv)
-    parts.extend([f"th-{th}", f"sieve-{sv}"])
+    params["FEATURE_SET"] = fset
+    parts.extend([f"th-{th}", f"sieve-{sv}", f"feats-{fset}"])
     params["NAME"] = "_".join(parts)
     return params
 
@@ -82,14 +88,24 @@ def active_learning_loop(
     use_grid_search=True,
     user_params=None,
 ):
+    infinite = False
     if total_rounds is None:
-        try:
-            nr = int(input("How many AL rounds? => "))
-        except ValueError:
-            print("Invalid => default=1")
-            nr = 1
+        ans = input("How many AL rounds? ('infinite' or x amount) => ").strip().lower()
+        if ans in ("infinite", "inf"):
+            infinite = True
+            nr = 1  # seed first round
+        else:
+            try:
+                nr = int(ans)
+            except ValueError:
+                print("Invalid => default=1")
+                nr = 1
     else:
-        nr = total_rounds
+        if isinstance(total_rounds, str) and total_rounds.lower() in ("infinite", "inf"):
+            infinite = True
+            nr = 1
+        else:
+            nr = total_rounds
 
     if model_choice is None:
         print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
@@ -118,12 +134,14 @@ def active_learning_loop(
         name = init_params.pop("NAME", "manual")
         combos = [(name, init_params)]
 
-    for r in range(start_round, nr + 1):
+    r = start_round
+    while True:
         if use_grid_search:
             base_min = cfg.MIN_AGRI_PROB
             base_sieve = cfg.SIEVE_MIN_SIZE
             base_svm = cfg.SVM_PARAMS.copy()
             base_rf = cfg.RF_PARAMS.copy()
+            base_fs = cfg.FEATURE_SET
 
             results = []
             for name, params in combos:
@@ -134,6 +152,7 @@ def active_learning_loop(
                 old_sieve = cfg.SIEVE_MIN_SIZE
                 old_svm = cfg.SVM_PARAMS.copy()
                 old_rf = cfg.RF_PARAMS.copy()
+                old_fs = cfg.FEATURE_SET
 
                 # apply params
                 cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
@@ -142,6 +161,8 @@ def active_learning_loop(
                     cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
                 if "RF_PARAMS" in params:
                     cfg.RF_PARAMS.update(params["RF_PARAMS"])
+                if "FEATURE_SET" in params:
+                    cfg.FEATURE_SET = params["FEATURE_SET"]
 
                 metrics = active_learning_round(
                     r,
@@ -159,12 +180,15 @@ def active_learning_loop(
                 cfg.SIEVE_MIN_SIZE = old_sieve
                 cfg.SVM_PARAMS = old_svm
                 cfg.RF_PARAMS = old_rf
+                cfg.FEATURE_SET = old_fs
 
             # restore to baseline before scoring
             cfg.MIN_AGRI_PROB = base_min
             cfg.SIEVE_MIN_SIZE = base_sieve
             cfg.SVM_PARAMS = base_svm
             cfg.RF_PARAMS = base_rf
+            cfg.FEATURE_SET = base_fs
+            # FEATURE_SET remains as global default
 
             def score(metrics):
                 return metrics.get("macro_f1", metrics.get("auc", 0.0)) if metrics else 0.0
@@ -189,16 +213,36 @@ def active_learning_loop(
                 cfg.SVM_PARAMS.update(best_params["SVM_PARAMS"])
             if "RF_PARAMS" in best_params:
                 cfg.RF_PARAMS.update(best_params["RF_PARAMS"])
+            if "FEATURE_SET" in best_params:
+                cfg.FEATURE_SET = best_params["FEATURE_SET"]
 
             out_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", best_name)
-            tmp = active_learning_round(
-                r,
-                TEMP_LABELS_FILE,
-                mchoice,
-                request_labels=r < nr,
-                out_dir=out_dir,
-                save_preds=True,
-            )
+            # In infinite mode: run train/infer/eval first (to produce predictions),
+            # then ask ONCE whether to proceed to candidate labeling; no post-round prompt.
+            if infinite:
+                _ = active_learning_round(
+                    r,
+                    TEMP_LABELS_FILE,
+                    mchoice,
+                    request_labels=False,
+                    out_dir=out_dir,
+                    save_preds=True,
+                )
+                go = input("Proceed to candidate labeling for this round? [Y/N] => ").strip().lower()
+                if go.startswith("y"):
+                    pred_csv = os.path.join(out_dir, "predictions.csv")
+                    tmp = candidate_selection_from_csv(pred_csv, out_dir, r)
+                else:
+                    tmp = None
+            else:
+                tmp = active_learning_round(
+                    r,
+                    TEMP_LABELS_FILE,
+                    mchoice,
+                    request_labels=(r < nr),
+                    out_dir=out_dir,
+                    save_preds=True,
+                )
             chosen_params = best_params
         else:
             name, params = combos[0]
@@ -208,6 +252,7 @@ def active_learning_loop(
             old_sieve = cfg.SIEVE_MIN_SIZE
             old_svm = cfg.SVM_PARAMS.copy()
             old_rf = cfg.RF_PARAMS.copy()
+            old_fs = cfg.FEATURE_SET
 
             cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
             cfg.SIEVE_MIN_SIZE = params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
@@ -215,26 +260,63 @@ def active_learning_loop(
                 cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
             if "RF_PARAMS" in params:
                 cfg.RF_PARAMS.update(params["RF_PARAMS"])
+            if "FEATURE_SET" in params:
+                cfg.FEATURE_SET = params["FEATURE_SET"]
 
-            tmp = active_learning_round(
-                r,
-                TEMP_LABELS_FILE,
-                mchoice,
-                request_labels=r < nr,
-                out_dir=combo_dir,
-            )
+            if infinite:
+                # Train/infer/eval first to produce predictions; ask ONCE before labeling
+                _ = active_learning_round(
+                    r,
+                    TEMP_LABELS_FILE,
+                    mchoice,
+                    request_labels=False,
+                    out_dir=combo_dir,
+                    save_preds=True,
+                )
+                go = input("Proceed to candidate labeling for this round? [Y/N] => ").strip().lower()
+                if go.startswith('y'):
+                    pred_csv = os.path.join(combo_dir, "predictions.csv")
+                    tmp = candidate_selection_from_csv(pred_csv, combo_dir, r)
+                else:
+                    tmp = None
+            else:
+                tmp = active_learning_round(
+                    r,
+                    TEMP_LABELS_FILE,
+                    mchoice,
+                    request_labels=(r < nr),
+                    out_dir=combo_dir,
+                )
 
             cfg.MIN_AGRI_PROB = old_min
             cfg.SIEVE_MIN_SIZE = old_sieve
             cfg.SVM_PARAMS = old_svm
             cfg.RF_PARAMS = old_rf
+            cfg.FEATURE_SET = old_fs
             chosen_params = params
 
-        if r < nr:
-            if tmp:
-                append_temp_labels(tmp)
+        # Post-round bookkeeping
+        if isinstance(tmp, str) and os.path.exists(tmp):
+            append_temp_labels(tmp)
+        # Infinite mode: no post-round prompt; control via the pre-labeling prompt instead
+        if infinite:
             if checkpoint_cb:
-                checkpoint_cb(r + 1, nr, mchoice, chosen_params)
+                checkpoint_cb(r + 1, "infinite", mchoice, chosen_params)
+            # If user declined labeling, consider this the end of the loop.
+            # Otherwise, continue to next round automatically.
+            if not (isinstance(tmp, str) and os.path.exists(tmp)):
+                # No labels appended this round (user likely chose N); exit.
+                break
+            r += 1
+            continue
+        else:
+            if r < nr:
+                if checkpoint_cb:
+                    checkpoint_cb(r + 1, nr, mchoice, chosen_params)
+                r += 1
+                continue
+            else:
+                break
 
     print("AL loop done. Final model => last round folder.")
 

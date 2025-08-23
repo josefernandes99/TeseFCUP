@@ -391,7 +391,7 @@ def download_data():
         for tidx, tc in enumerate(tile_bbox(isl["coords"])):
             tasks.append(export_full_year(isl, tc, tidx))
 
-        print("Monitoring export tasks for this island…")
+        print("Monitoring export tasks for this island...")
         while True:
             states = {t.id: t.status().get("state") for t in tasks}
             print(states)
@@ -400,7 +400,7 @@ def download_data():
             time.sleep(10)
 
         print(f"\n✅ Island '{isl['name']}' complete.")
-        input("Please download these tiles from Google Drive and clear space. Press Enter to continue to the next island…")
+        input("Please download these tiles from Google Drive and clear space. Press Enter to continue to the next island...")
 
     print("\n🎉 All islands processed. Export pipeline finished.")
 

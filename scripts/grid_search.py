@@ -1,53 +1,53 @@
-"""Simple hyper-parameter grid search utility.
+"""Grid search via StratifiedKFold CV over labels.csv (+temp), with summary.
 
-Each combination of parameters is trained using the existing active learning
-round code (without requesting additional labels). Results and evaluation
-metrics are stored in a dedicated sub-folder inside the rounds directory.
+Writes: data/phase1/rounds/grid_<MODEL>_summary/results.json
 """
 
 import os
 import json
 from itertools import product
+import numpy as np
+from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import f1_score, accuracy_score, roc_auc_score, average_precision_score
 
-from config import LABELS_FILE, ROUNDS_DIR
+from config import LABELS_FILE, TEMP_LABELS_FILE, ROUNDS_DIR
 import config as cfg
-from a3_phase1_active_learning_round import active_learning_round
+from splits import load_labels, build_feature_matrix
+from a3_phase1_active_learning_round import train_model
+
+
+def _load_union_labels():
+    rows = []
+    if os.path.exists(LABELS_FILE):
+        rows.extend(load_labels(LABELS_FILE))
+    if os.path.exists(TEMP_LABELS_FILE):
+        rows.extend(load_labels(TEMP_LABELS_FILE))
+    # simple de-dup on (tile,lat,lon)
+    seen = set(); out = []
+    for r in rows:
+        k = f"{r.get('tile')}:{r.get('lat')}:{r.get('lon')}"
+        if k in seen: continue
+        seen.add(k); out.append(r)
+    return out
 
 
 def generate_param_combinations(model_choice):
-    """Return a list of (name, params) tuples for the given model."""
-    thresholds = [0.55, 0.6, 0.65]
-    sieves = [0, 2, 3, 5]
     combos = []
     if model_choice.lower() == "svm":
-        Cs = [1, 3, 10, 30]
-        gammas = ["auto", "scale", 0.001]
-        class_weights = [None, "balanced"]
-        for C, g, cw, th, sv in product(Cs, gammas, class_weights, thresholds, sieves):
-            name = f"C-{C}_gamma-{g}_cw-{cw}_th-{th}_sieve-{sv}_"
-            params = {"C": C, "gamma": g, "class_weight": cw}
-            combos.append((name, {
-                "SVM_PARAMS": params,
-                "MIN_AGRI_PROB": th,
-                "SIEVE_MIN_SIZE": sv,
-            }))
+        Cs = [0.5, 1, 3, 10]
+        gammas = ["scale", "auto"]
+        class_weights = ["balanced"]
+        for C, g, cw in product(Cs, gammas, class_weights):
+            name = f"svm_C-{C}_gamma-{g}_cw-{cw}"
+            combos.append((name, {"SVM_PARAMS": {"C": C, "gamma": g, "class_weight": cw}}))
     elif model_choice.lower() == "randomforest":
-        n_estimators = [100, 200, 400]
-        depths = [6, 8, 10, 12]
-        leaves = [1, 2, 4]
-        class_weights = [None, "balanced"]
-        for ne, md, ml, cw, th, sv in product(n_estimators, depths, leaves, class_weights, thresholds, sieves):
-            name = f"ne-{ne}_md-{md}_ml-{ml}_cw-{cw}_th-{th}_sieve-{sv}"
-            combos.append((name, {
-                "RF_PARAMS": {
-                    "n_estimators": ne,
-                    "max_depth": md,
-                    "min_samples_leaf": ml,
-                    "class_weight": cw,
-                },
-                "MIN_AGRI_PROB": th,
-                "SIEVE_MIN_SIZE": sv,
-            }))
+        n_estimators = [200, 400]
+        depths = [8, 12]
+        leaves = [1, 2]
+        class_weights = ["balanced"]
+        for ne, md, ml, cw in product(n_estimators, depths, leaves, class_weights):
+            name = f"rf_ne-{ne}_md-{md}_ml-{ml}_cw-{cw}"
+            combos.append((name, {"RF_PARAMS": {"n_estimators": ne, "max_depth": md, "min_samples_leaf": ml, "class_weight": cw}}))
     else:
         print("Grid search currently implemented for SVM and RandomForest only.")
     return combos
@@ -55,64 +55,55 @@ def generate_param_combinations(model_choice):
 
 def run_grid_search(model_choice):
     os.makedirs(ROUNDS_DIR, exist_ok=True)
-    combos = generate_param_combinations(model_choice)
-    if not combos:
+    rows = _load_union_labels()
+    X, y = build_feature_matrix(rows)
+    if X.size == 0:
+        print("No labeled features to grid-search.")
         return
+    # auto-reduce folds
+    min_class = min(np.bincount(y)) if len(np.unique(y)) > 1 else 1
+    n_splits = max(2, min(cfg.CV_FOLDS, min_class)) if cfg.CV_AUTO_REDUCE else cfg.CV_FOLDS
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=None if cfg.SPLIT_SEED_MODE=="random" else cfg.SPLIT_RANDOM_SEED)
 
-    for idx, (name, params) in enumerate(combos, 1):
-        print(f"\n=== Combination {idx}/{len(combos)} ===")
-        print("Current Round is ", name)
+    results = []
+    combos = generate_param_combinations(model_choice)
+    for name, params in combos:
+        # backup & apply
+        old_svm = cfg.SVM_PARAMS.copy(); old_rf = cfg.RF_PARAMS.copy()
+        if "SVM_PARAMS" in params: cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
+        if "RF_PARAMS" in params: cfg.RF_PARAMS.update(params["RF_PARAMS"])
+        scores = {"f1": [], "acc": [], "auc": [], "auc_pr": []}
+        for train_idx, val_idx in skf.split(X, y):
+            Xm, ym = X[train_idx], y[train_idx]
+            model = train_model(model_choice, Xm, ym)
+            pv = model.predict_proba(X[val_idx])[:,1]
+            yv = y[val_idx]
+            yhat = (pv >= cfg.MIN_AGRI_PROB).astype(int)
+            scores["f1"].append(f1_score(yv, yhat, zero_division=0))
+            scores["acc"].append(accuracy_score(yv, yhat))
+            try:
+                scores["auc"].append(roc_auc_score(yv, pv))
+            except Exception:
+                scores["auc"].append(0.0)
+            try:
+                scores["auc_pr"].append(average_precision_score(yv, pv))
+            except Exception:
+                scores["auc_pr"].append(0.0)
+        # restore
+        cfg.SVM_PARAMS = old_svm; cfg.RF_PARAMS = old_rf
+        res = {k: float(np.mean(v)) for k, v in scores.items()}
+        res.update({f"std_{k}": float(np.std(v)) for k, v in scores.items()})
+        results.append({"name": name, "params": params, "metrics": res})
 
-        out_dir = os.path.join(ROUNDS_DIR, f"grid_{model_choice}_{name}")
-
-        # backup current settings
-        old_min = cfg.MIN_AGRI_PROB
-        old_sieve = cfg.SIEVE_MIN_SIZE
-        old_svm = cfg.SVM_PARAMS.copy()
-        old_rf = cfg.RF_PARAMS.copy()
-
-        # update globals for this run
-        cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
-        cfg.SIEVE_MIN_SIZE = params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
-        if "SVM_PARAMS" in params:
-            cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
-        if "RF_PARAMS" in params:
-            cfg.RF_PARAMS.update(params["RF_PARAMS"])
-
-        # always use round 1 for each combination to avoid state bleed
-        round_num = 1
-        src_dir = os.path.join(ROUNDS_DIR, f"round_{round_num}")
-        if os.path.exists(src_dir):
-            import shutil
-            shutil.rmtree(src_dir)
-
-        # run a training round without requesting extra labels or prediction CSV
-        metrics = active_learning_round(
-            round_num,
-            LABELS_FILE,
-            model_choice,
-            request_labels=False,
-            save_preds=False,
-            return_metrics=True,
-        )
-
-        if os.path.exists(out_dir):
-            import shutil
-            shutil.rmtree(out_dir)
-        os.rename(src_dir, out_dir)
-
-        # save metrics if available
-        if metrics:
-            with open(os.path.join(out_dir, "metrics.json"), "w") as jf:
-                json.dump(metrics or {}, jf, indent=2)
-
-        # restore globals
-        cfg.MIN_AGRI_PROB = old_min
-        cfg.SIEVE_MIN_SIZE = old_sieve
-        cfg.SVM_PARAMS = old_svm
-        cfg.RF_PARAMS = old_rf
-
-    print("Grid search complete.")
+    # choose best by F1 then AUC_PR
+    def key(m):
+        return (m["metrics"].get("f1", 0.0), m["metrics"].get("auc_pr", 0.0))
+    best = max(results, key=key)
+    out_dir = os.path.join(ROUNDS_DIR, f"grid_{model_choice}_summary")
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "results.json"), "w") as f:
+        json.dump({"best": best, "all": results, "folds": n_splits}, f, indent=2)
+    print(f"Grid search complete. Summary => {out_dir}/results.json")
 
 
 if __name__ == "__main__":

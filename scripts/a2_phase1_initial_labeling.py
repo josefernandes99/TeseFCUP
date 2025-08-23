@@ -13,7 +13,8 @@ from pyproj import Transformer
 from config import (
     LABELS_FILE, LABELS_KML, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML, GRID_KML_DIR,
-    TEMP_LABELS_FILE, ROI_COORDS, EVALUATE_FILE, NOTE_OPTIONS, EVALUATE_KML
+    TEMP_LABELS_FILE, ROI_COORDS, NOTE_OPTIONS,
+    HIGHSCORE_FILE, PROBABLE_AGRI_FILE
 )
 
 def ensure_labels_file():
@@ -27,14 +28,7 @@ def ensure_labels_file():
     export_labels_kml()
 
 
-def ensure_evaluate_file():
-    """Create evaluation CSV with notes column if it does not yet exist."""
-    os.makedirs(os.path.dirname(EVALUATE_FILE), exist_ok=True)
-    if not os.path.exists(EVALUATE_FILE):
-        with open(EVALUATE_FILE, "w", newline="") as f:
-            csv.writer(f).writerow(["id", "lat", "lon", "tile", "label", "notes"])
-        print("Created new evaluation CSV.")
-    export_evaluate_kml()
+# Evaluation CSV/KML removed in favor of stratified split over labels + temp_labels
 
 def load_labels(path=LABELS_FILE):
     if not os.path.exists(path):
@@ -101,61 +95,7 @@ def export_labels_kml(path=LABELS_FILE, out_path=LABELS_KML):
     print(f"Exported {len(labels)} labels to KML => {out_path}")
 
 
-def export_evaluate_kml(path=EVALUATE_FILE, out_path=EVALUATE_KML):
-    """Export evaluation labels to a KML similar in style to labels.kml."""
-    labels = load_labels(path)
-    doc = minidom.Document()
-    kml = doc.createElement("kml")
-    kml.setAttribute("xmlns", "http://www.opengis.net/kml/2.2")
-    doc.appendChild(kml)
-    d = doc.createElement("Document")
-    kml.appendChild(d)
-
-    style_agri = doc.createElement("Style"); style_agri.setAttribute("id", "agri")
-    icon_agri = doc.createElement("IconStyle")
-    color_agri = doc.createElement("color")
-    color_agri.appendChild(doc.createTextNode("ff00ff00"))
-    icon_agri.appendChild(color_agri)
-    label_agri = doc.createElement("LabelStyle")
-    scale_agri = doc.createElement("scale"); scale_agri.appendChild(doc.createTextNode("0"))
-    label_agri.appendChild(scale_agri)
-    style_agri.appendChild(icon_agri); style_agri.appendChild(label_agri)
-    d.appendChild(style_agri)
-
-    style_non = doc.createElement("Style"); style_non.setAttribute("id", "nonagri")
-    icon_non = doc.createElement("IconStyle")
-    color_non = doc.createElement("color")
-    color_non.appendChild(doc.createTextNode("ff0000ff"))
-    icon_non.appendChild(color_non)
-    label_non = doc.createElement("LabelStyle")
-    scale_non = doc.createElement("scale"); scale_non.appendChild(doc.createTextNode("0"))
-    label_non.appendChild(scale_non)
-    style_non.appendChild(icon_non); style_non.appendChild(label_non)
-    d.appendChild(style_non)
-
-    for r in labels:
-        pm = doc.createElement("Placemark")
-        name_el = doc.createElement("name")
-        name_el.appendChild(doc.createTextNode(r.get("notes", "")))
-        pm.appendChild(name_el)
-
-        style = doc.createElement("styleUrl")
-        if r.get("label", "").lower() == "agricultural":
-            style.appendChild(doc.createTextNode("#agri"))
-        else:
-            style.appendChild(doc.createTextNode("#nonagri"))
-        pm.appendChild(style)
-
-        pt = doc.createElement("Point")
-        coords = doc.createElement("coordinates")
-        coords.appendChild(doc.createTextNode(f"{r.get('lon')},{r.get('lat')},0"))
-        pt.appendChild(coords)
-        pm.appendChild(pt)
-        d.appendChild(pm)
-
-    with open(out_path, "w") as f:
-        f.write(doc.toprettyxml(indent="  "))
-    print(f"Exported {len(labels)} evaluation labels to KML => {out_path}")
+# export_evaluate_kml removed
 
 
 def check_label_requirements():
@@ -218,7 +158,8 @@ def get_patch_dimensions():
     with rasterio.open(tifs[0]) as src:
         w = abs(src.transform[0])
         h = abs(src.transform[4])
-        return 3 * w, 3 * h
+        # Use 5x5 pixel patches to reduce KML complexity
+        return 5 * w, 5 * h
 
 
 def compute_roi_bbox():
@@ -332,25 +273,25 @@ def generate_grid_kml(tile_path, patch_width, patch_height, out_path):
         kml = Element('kml'); kml.set('xmlns', 'http://www.opengis.net/kml/2.2')
         doc = SubElement(kml, 'Document')
         sp = SubElement(doc, 'Style', id='patchGrid')
-        ln1 = SubElement(sp, 'LineStyle'); SubElement(ln1, 'color').text = 'ff000000'; SubElement(ln1, 'width').text = '2'
-        si = SubElement(doc, 'Style', id='pixelGrid')
-        ln2 = SubElement(si, 'LineStyle'); SubElement(ln2, 'color').text = 'ff000000'; SubElement(ln2, 'width').text = '1'
+        # 15% transparent black (aabbggrr): 26 alpha, 000000 black
+        ln1 = SubElement(sp, 'LineStyle'); SubElement(ln1, 'color').text = '26000000'; SubElement(ln1, 'width').text = '2'
 
-        def add_line(p0, p1, use_patch):
+        def add_line(p0, p1):
             pm = SubElement(doc, 'Placemark')
-            SubElement(pm, 'styleUrl').text = '#patchGrid' if use_patch else '#pixelGrid'
+            SubElement(pm, 'styleUrl').text = '#patchGrid'
             ls = SubElement(pm, 'LineString')
             SubElement(ls, 'coordinates').text = f"{to_lonlat(*p0)} {to_lonlat(*p1)}"
 
-        for c in range(0, width + 1):
+        # Draw only patch boundaries (every patch_px / patch_py)
+        for c in range(0, width + 1, patch_px):
             p0 = src.xy(0, c, offset="ul")
             p1 = src.xy(height, c, offset="ul")
-            add_line(p0, p1, c % patch_px == 0)
+            add_line(p0, p1)
 
-        for r in range(0, height + 1):
+        for r in range(0, height + 1, patch_py):
             p0 = src.xy(r, 0, offset="ul")
             p1 = src.xy(r, width, offset="ul")
-            add_line(p0, p1, r % patch_py == 0)
+            add_line(p0, p1)
 
     xml = minidom.parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
     with open(out_path, 'wb') as f:
@@ -361,7 +302,9 @@ def generate_grid_kml(tile_path, patch_width, patch_height, out_path):
 def generate_grids_for_all_tiles():
     """Ensure a grid KML exists for every raw tile."""
     patch_w, patch_h = get_patch_dimensions()
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    # Only consider original raw tiles; ignore any generated overlays or final-sweep artifacts
+    all_tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    tifs = [tp for tp in all_tifs if ("_overlay" not in os.path.basename(tp) and "_th" not in os.path.basename(tp))]
     if not tifs:
         print(f"No raw tiles in {RAW_DATA_DIR}; skipping grid creation.")
         return
@@ -376,7 +319,7 @@ def generate_grids_for_all_tiles():
             print(f"Failed to make grid for {tp}: {e}")
 
 
-# ——————— BALANCED SUBSET ———————
+# ----- BALANCED SUBSET -----
 
 def create_balanced_subset():
     labels = load_labels()
@@ -394,7 +337,7 @@ def create_balanced_subset():
     return balanced
 
 
-# ——————— MANUAL & GLOBAL LABELING ———————
+# ----- MANUAL & GLOBAL LABELING -----
 
 def manual_labeling(num_labels):
     labels = load_labels()
@@ -480,62 +423,9 @@ def global_sampling_labeling(num_patches):
     return added
 
 
-def create_evaluation_labels():
-    """Prompt the user to manually create an evaluation set of 100 labels
-    (25 agricultural / 75 non-agricultural).  Duplicates with existing labels
-    are not allowed.  Labels are stored in ``evaluate.csv``.
-    """
-    ensure_evaluate_file()
-    eval_labels = load_labels(EVALUATE_FILE)
-    master_labels = load_labels(LABELS_FILE)
-    existing = eval_labels + master_labels
-    agri = sum(1 for r in eval_labels if r["label"].lower() == "agricultural")
-    non  = sum(1 for r in eval_labels if r["label"].lower() != "agricultural")
-    target_agri, target_non = 25, 75
-    while agri < target_agri or non < target_non:
-        try:
-            lat = float(input("Enter latitude: "))
-            lon = float(input("Enter longitude: "))
-        except ValueError:
-            print("Invalid. Skip.")
-            continue
-        if duplicate_exists(lat, lon, existing):
-            print("Duplicate label. Skip.")
-            continue
-        tile = get_tile_for_coordinate(lat, lon)
-        if not tile:
-            print("No tile for coordinate; skipping.")
-            continue
-        print("Label? (1=Agri,2=Non,3=Skip)")
-        ui = input("=> ").strip()
-        if ui == "3":
-            continue
-        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
-        if lab is None:
-            print("Invalid label; skipping.")
-            continue
-        # enforce ratio
-        if lab == "Agricultural" and agri >= target_agri:
-            print("Already have required agricultural samples; choose non-agricultural.")
-            continue
-        if lab != "Agricultural" and non >= target_non:
-            print("Already have required non-agricultural samples; choose agricultural.")
-            continue
-        note = prompt_note()
-        eid = f"eval_{int(random.random()*1e6)}"
-        with open(EVALUATE_FILE, "a", newline="") as f:
-            csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
-        export_evaluate_kml()
-        existing.append({"lat": lat, "lon": lon})
-        if lab == "Agricultural":
-            agri += 1
-        else:
-            non += 1
-        print(f"Evaluation label added. Totals → Agri:{agri}/25 Non:{non}/75")
-    export_evaluate_kml()
-    print(f"Evaluation labeling complete → {EVALUATE_FILE}")
+# create_evaluation_labels removed (validation uses stratified split)
 
-# ——————— INITIAL LABELING LOOP ———————
+# ----- INITIAL LABELING LOOP -----
 
 def initial_labeling():
     ensure_labels_file()
@@ -560,11 +450,24 @@ def initial_labeling():
                 break
 
         if ok:
-            choice = input("[1] Label more, [2] Train, [3] Create Evaluation Labels? => ").strip()
+            choice = input("[1] Label more, [2] Train, [3] Review Highscore, [4] Review ProbableAgri => ").strip()
             if choice == "2":
                 break
             if choice == "3":
-                create_evaluation_labels()
+                try:
+                    n = int(input("How many highscore entries? ").strip())
+                except Exception:
+                    n = 5
+                added = assisted_labeling_from_list(HIGHSCORE_FILE, n, list_name="Highscore")
+                print(f"Added {added} labels.")
+                continue
+            if choice == "4":
+                try:
+                    n = int(input("How many probableAgri entries? ").strip())
+                except Exception:
+                    n = 5
+                added = assisted_labeling_from_list(PROBABLE_AGRI_FILE, n, list_name="ProbableAgri")
+                print(f"Added {added} labels.")
                 continue
             try:
                 n = int(input("How many to label? "))
@@ -577,12 +480,16 @@ def initial_labeling():
             except:
                 n = 5
 
-        print("Choose labeling: [1] Manual, [2] Global random")
+        print("Choose labeling: [1] Manual, [2] Global random, [3] Highscore assisted, [4] ProbableAgri assisted")
         m = input("=> ").strip()
         if m == "1":
             added = manual_labeling(n)
         elif m == "2":
             added = global_sampling_labeling(n)
+        elif m == "3":
+            added = assisted_labeling_from_list(HIGHSCORE_FILE, n, list_name="Highscore")
+        elif m == "4":
+            added = assisted_labeling_from_list(PROBABLE_AGRI_FILE, n, list_name="ProbableAgri")
         else:
             print("Invalid; skipping.")
             added = 0
@@ -594,3 +501,81 @@ def initial_labeling():
 
 if __name__ == "__main__":
     initial_labeling()
+
+
+def _remove_pixel_from_lists(tile: str, row: int, col: int, lat: float | None = None, lon: float | None = None):
+    """Remove pixel from highscore/probableAgri/temp labels if present."""
+    import csv as _csv
+    # persistent lists (by row/col)
+    for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            rows = list(_csv.DictReader(f))
+        keep = [r for r in rows if not (r.get('tile') == tile and str(r.get('row')) == str(row) and str(r.get('col')) == str(col))]
+        if len(keep) != len(rows):
+            with open(path, 'w', newline='') as f:
+                w = _csv.DictWriter(f, fieldnames=list(keep[0].keys()) if keep else rows[0].keys())
+                w.writeheader(); w.writerows(keep)
+    # global temp labels (by tile+lat+lon)
+    from config import TEMP_LABELS_FILE as _TL
+    if os.path.exists(_TL) and lat is not None and lon is not None:
+        with open(_TL) as f:
+            rows = list(_csv.DictReader(f))
+        keep = [r for r in rows if not (r.get('tile') == tile and str(r.get('lat')) == f"{lat}" and str(r.get('lon')) == f"{lon}")]
+        if len(keep) != len(rows):
+            with open(_TL, 'w', newline='') as f:
+                w = _csv.DictWriter(f, fieldnames=list(keep[0].keys()) if keep else rows[0].keys())
+                w.writeheader(); w.writerows(keep)
+
+
+def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = "Assisted") -> int:
+    """Stream candidates from a persistent list CSV and prompt labeling.
+
+    Removes each labeled entry from the persistent files to avoid relabeling.
+    """
+    if not os.path.exists(csv_path):
+        print(f"No {list_name} file at {csv_path}")
+        return 0
+    with open(csv_path) as f:
+        import csv as _csv
+        rows = list(_csv.DictReader(f))
+    if not rows:
+        print(f"{list_name} list empty.")
+        return 0
+    added = 0
+    w, h = get_patch_dimensions()
+    for r in rows[:max_count]:
+        tile = r.get('tile')
+        try:
+            la = float(r.get('lat')); lo = float(r.get('lon'))
+            row = int(r.get('row')); col = int(r.get('col'))
+        except Exception:
+            continue
+        # convert to tile CRS for visualization
+        try:
+            with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
+                x, y = lo, la
+                if src.crs and not src.crs.is_geographic:
+                    transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+                    x, y = transformer.transform(lo, la)
+        except Exception:
+            continue
+        generate_kml_for_patch(y, x, w, h)
+        print(f"Open KML {CANDIDATE_KML} to view candidate from {list_name}.")
+        ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
+        if ui == "3":
+            continue
+        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
+        if not lab:
+            print("Invalid choice.")
+            continue
+        note = prompt_note()
+        eid = f"{list_name}_{int(random.random()*1e6)}"
+        with open(LABELS_FILE, 'a', newline='') as f:
+            csv.writer(f).writerow([eid, la, lo, tile, lab, note])
+        export_labels_kml()
+        _remove_pixel_from_lists(tile, row, col, la, lo)
+        print(f"Labeled from {list_name}: {tile} r={row},c={col}")
+        added += 1
+    return added

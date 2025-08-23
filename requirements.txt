@@ -3,11 +3,13 @@
 # Core
 numpy==1.23.5
 certifi==2024.2.2
+pyproj==3.6.1
 
 # Geospatial
 earthengine-api==0.1.350
 rasterio==1.3.8
 shapely==2.0.3
+scipy==1.11.4
 
 # Progress display
 rich==13.7.0
