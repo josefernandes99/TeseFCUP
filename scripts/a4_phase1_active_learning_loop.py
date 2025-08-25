@@ -7,6 +7,7 @@ import config as cfg
 from a3_phase1_active_learning_round import active_learning_round, candidate_selection_from_csv
 from grid_search import generate_param_combinations
 from config import LABELS_FILE, TEMP_LABELS_FILE
+from joblib import Parallel, delayed
 
 def initialize_temp_labels():
     if not os.path.exists(TEMP_LABELS_FILE):
@@ -108,10 +109,10 @@ def active_learning_loop(
             nr = total_rounds
 
     if model_choice is None:
-        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
-        models = ["ResNet", "SVM", "RandomForest"]
+        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest, 4=XGBoost")
+        models = ["ResNet", "SVM", "RandomForest", "XGBoost"]
         ch = input("=> ").strip()
-        if ch in ["1", "2", "3"]:
+        if ch in ["1", "2", "3", "4"]:
             mchoice = models[int(ch) - 1]
         else:
             print("Invalid => default=RandomForest")
@@ -143,46 +144,41 @@ def active_learning_loop(
             base_rf = cfg.RF_PARAMS.copy()
             base_fs = cfg.FEATURE_SET
 
-            results = []
-            for name, params in combos:
-                combo_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", name)
-
-                # backup current settings
-                old_min = cfg.MIN_AGRI_PROB
-                old_sieve = cfg.SIEVE_MIN_SIZE
-                old_svm = cfg.SVM_PARAMS.copy()
-                old_rf = cfg.RF_PARAMS.copy()
-                old_fs = cfg.FEATURE_SET
-
-                # apply params
-                cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
-                cfg.SIEVE_MIN_SIZE = params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
+            def _run_combo(name, params):
+                # Run each combination in an isolated worker process to avoid cfg cross-talk
+                import os as _os
+                import config as _cfg
+                # apply params locally
                 if "SVM_PARAMS" in params:
-                    cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
+                    _cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
                 if "RF_PARAMS" in params:
-                    cfg.RF_PARAMS.update(params["RF_PARAMS"])
+                    _cfg.RF_PARAMS.update(params["RF_PARAMS"])
                 if "FEATURE_SET" in params:
-                    cfg.FEATURE_SET = params["FEATURE_SET"]
-
+                    _cfg.FEATURE_SET = params["FEATURE_SET"]
+                if "MIN_AGRI_PROB" in params:
+                    _cfg.MIN_AGRI_PROB = params["MIN_AGRI_PROB"]
+                if "SIEVE_MIN_SIZE" in params:
+                    _cfg.SIEVE_MIN_SIZE = params["SIEVE_MIN_SIZE"]
+                combo_dir_local = _os.path.join(_cfg.ROUNDS_DIR, f"round_{r}", name)
                 metrics = active_learning_round(
                     r,
                     TEMP_LABELS_FILE,
                     mchoice,
                     request_labels=False,
-                    out_dir=combo_dir,
+                    out_dir=combo_dir_local,
                     save_preds=False,
                     return_metrics=True,
+                    progress_enabled=False,
+                    parallel_tiles=False,
                 )
-                results.append((name, params, metrics))
+                return (name, params, metrics)
 
-                # restore
-                cfg.MIN_AGRI_PROB = old_min
-                cfg.SIEVE_MIN_SIZE = old_sieve
-                cfg.SVM_PARAMS = old_svm
-                cfg.RF_PARAMS = old_rf
-                cfg.FEATURE_SET = old_fs
+            # Execute all combos in parallel
+            results = Parallel(n_jobs=-1, prefer="processes")(
+                delayed(_run_combo)(name, params) for (name, params) in combos
+            )
 
-            # restore to baseline before scoring
+            # restore to baseline before scoring (in parent process)
             cfg.MIN_AGRI_PROB = base_min
             cfg.SIEVE_MIN_SIZE = base_sieve
             cfg.SVM_PARAMS = base_svm

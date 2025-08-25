@@ -104,6 +104,28 @@ class SklearnWrapper:
     def fit(self, X, y):  # no-op
         return self
 
+class CombinedModelWithPatch:
+    """Wrap a base probabilistic model and an optional tiny patch CNN refiner.
+
+    If a patch net is present and PATCH_CNN_ENABLED is True, refine the most
+    uncertain pixels in a tile by blending base prob with CNN prob.
+    """
+    def __init__(self, base_wrapper, patch_net_scripted=None, patch_channels=None, patch_win=9, blend_alpha=0.5):
+        self.base = base_wrapper
+        self.patch_net = patch_net_scripted  # torch.jit.ScriptModule or None
+        self.patch_channels = patch_channels or []
+        self.patch_win = int(patch_win)
+        self.blend_alpha = float(blend_alpha)
+
+    def predict_proba(self, X):
+        return self.base.predict_proba(X)
+
+    def predict(self, X):
+        return self.base.predict(X)
+
+    def fit(self, X, y):
+        return self
+
 
 class TabularResNet(nn.Module):
     def __init__(self, input_dim, hidden_dim=64):
@@ -194,7 +216,18 @@ def train_model(choice, X, y):
         base = SVC(probability=True, **{k: v for k, v in params.items() if k != 'class_weight'})
         clf = CalibratedClassifierCV(base, method=cfg.CALIBRATION_METHOD, cv=cfg.CALIBRATION_FOLDS)
         clf.fit(Xs, y)
-        return SklearnWrapper(clf, feat_means, feat_std)
+        base_wrapper = SklearnWrapper(clf, feat_means, feat_std)
+        # Optional: tiny patch CNN refiner
+        if getattr(cfg, 'PATCH_CNN_ENABLED', False):
+            patch = _train_patch_cnn()
+            return CombinedModelWithPatch(
+                base_wrapper,
+                patch_net_scripted=patch.get('scripted'),
+                patch_channels=patch.get('channels', []),
+                patch_win=int(patch.get('win', 9)),
+                blend_alpha=float(getattr(cfg, 'PATCH_CNN_BLEND_ALPHA', 0.5)),
+            )
+        return base_wrapper
 
     elif c == "randomforest":
         rf = RandomForestClassifier(n_jobs=-1, **cfg.RF_PARAMS)
@@ -206,6 +239,24 @@ def train_model(choice, X, y):
         train_resnet(net, torch.from_numpy(Xs.astype(np.float32)), torch.from_numpy(y.astype(np.int64)))
         scripted = torch.jit.script(net)
         return PytorchResNetWrapper(scripted, feat_means, feat_std)
+
+    elif c == "xgboost":
+        try:
+            import xgboost as xgb
+        except Exception as e:
+            raise RuntimeError("XGBoost model requested but xgboost package is not installed.")
+        params = cfg.XGB_PARAMS.copy()
+        # Override tree_method based on GPU flag
+        params['tree_method'] = 'gpu_hist' if getattr(cfg, 'XGB_USE_GPU', False) else 'hist'
+        # Scale pos weight auto if requested
+        if getattr(cfg, 'XGB_USE_AUTO_SPW', True):
+            pos = max(int((y == 1).sum()), 1)
+            neg = max(int((y == 0).sum()), 1)
+            params['scale_pos_weight'] = float(neg) / float(pos)
+        # Fit on standardized features (keeps wrapper interface consistent)
+        clf = xgb.XGBClassifier(**params)
+        clf.fit(Xs, y, verbose=False)
+        return SklearnWrapper(clf, feat_means, feat_std)
 
     else:
         raise ValueError(f"Unknown model choice: {choice}")
@@ -245,6 +296,42 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
         else:
             probs = model.predict_proba(Xflat)[:, 1].astype(np.float32)
 
+        # Optional patch-CNN refine on most-uncertain pixels (blend)
+        try:
+            if hasattr(model, 'patch_net') and model.patch_net is not None and getattr(cfg, 'PATCH_CNN_ENABLED', False):
+                th = float(getattr(cfg, 'MIN_AGRI_PROB', 0.5))
+                frac = float(getattr(cfg, 'PATCH_CNN_TOP_UNCERTAIN_FRAC', 0.1))
+                k = int(max(1, frac * probs.size))
+                # pick closest to threshold
+                idx = np.argsort(np.abs(probs - th))[:k]
+                # build patches for selected indices
+                win = int(getattr(cfg, 'PATCH_CNN_WINDOW', getattr(model, 'patch_win', 9)))
+                rad = win // 2
+                chans = model.patch_channels if getattr(model, 'patch_channels', None) else _select_patch_channels(names)
+                # ensure channels are valid
+                chans = [ci for ci in chans if 0 <= ci < b]
+                if chans and win > 0:
+                    # prepare patches tensor [k, C, H, W]
+                    ph = np.zeros((k, len(chans), win, win), dtype=np.float32)
+                    rr = rows[idx]; cc = cols[idx]
+                    # pad array to simplify edge handling
+                    pad = ((0,0),(rad,rad),(rad,rad))
+                    arrp = np.pad(arr, pad_width=pad, mode='edge')
+                    for j,(r0,c0) in enumerate(zip(rr,cc)):
+                        rs = r0; cs = c0
+                        ph[j] = arrp[chans, rs:rs+win, cs:cs+win]
+                    # run CNN
+                    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                    xt = torch.from_numpy(ph).to(device)
+                    with torch.no_grad():
+                        logits = model.patch_net(xt)
+                        p2 = torch.softmax(logits, dim=1)[:,1].cpu().numpy().astype(np.float32)
+                    alpha = float(getattr(cfg, 'PATCH_CNN_BLEND_ALPHA', 0.5))
+                    probs[idx] = alpha * p2 + (1.0 - alpha) * probs[idx]
+        except Exception:
+            # Refinement is optional; ignore any errors to keep pipeline robust
+            pass
+
         # vectorized center coordinate computation
         xs, ys = rasterio.transform.xy(src.transform, rows.tolist(), cols.tolist(), offset="center")
         xs = np.asarray(xs)
@@ -279,6 +366,139 @@ def save_predictions(round_folder, preds):
         w.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob","ndvi"])
         w.writerows(preds)
     print(f"Predictions written to {path}")
+
+
+# -------------------------
+# Patch CNN helpers
+# -------------------------
+def _select_patch_channels(names):
+    """Choose a small set of channels for patch CNN (robust defaults).
+
+    Preference: NDVI_s2, B8_s2, B4_s2, and optionally NDMI_s2 if present.
+    Returns list of channel indices.
+    """
+    prefs = ["NDVI_s2", "B8_s2", "B4_s2", "NDMI_s2", "NDVI", "B8", "B4", "NDMI"]
+    idxs = []
+    for p in prefs:
+        try:
+            idxs.append(names.index(p))
+        except ValueError:
+            # try seasonal fallback
+            pref = p.split("_s")[0]
+            cand = [i for i, n in enumerate(names) if n.startswith(pref + "_s")]
+            if cand:
+                idxs.append(cand[len(cand)//2])
+    # unique preserve order
+    seen = set(); out = []
+    for i in idxs:
+        if i not in seen:
+            seen.add(i); out.append(i)
+    return out[:4]
+
+
+def _train_patch_cnn():
+    """Train a tiny CNN on labeled patches if enabled; return dict with scripted net.
+
+    Uses labels.csv + temp_labels.csv for supervision. Keeps compute limited by
+    sampling up to PATCH_CNN_MAX_PATCHES per class.
+    """
+    if not getattr(cfg, 'PATCH_CNN_ENABLED', False):
+        return {"scripted": None, "channels": [], "win": int(getattr(cfg, 'PATCH_CNN_WINDOW', 9))}
+    try:
+        import csv as _csv
+        from splits import load_labels as _load
+        from al_shared import get_tile_features, snap_to_pixel_center
+    except Exception:
+        return {"scripted": None, "channels": [], "win": int(getattr(cfg, 'PATCH_CNN_WINDOW', 9))}
+
+    rows = []
+    if os.path.exists(cfg.LABELS_FILE):
+        rows.extend(_load(cfg.LABELS_FILE))
+    if os.path.exists(cfg.TEMP_LABELS_FILE):
+        rows.extend(_load(cfg.TEMP_LABELS_FILE))
+    if not rows:
+        return {"scripted": None, "channels": [], "win": int(getattr(cfg, 'PATCH_CNN_WINDOW', 9))}
+
+    # Collect patches
+    win = int(getattr(cfg, 'PATCH_CNN_WINDOW', 9)); rad = win // 2
+    Xp, Yp = [], []
+    # Determine channels once from the first available tile
+    chans = None
+    for r in rows:
+        tile = r.get('tile'); lab = r.get('label', '').lower()
+        if tile is None or lab == '':
+            continue
+        snap = snap_to_pixel_center(tile, float(r.get('lat', 'nan')), float(r.get('lon', 'nan')))
+        if not snap:
+            continue
+        _, _, ri, ci = snap
+        tf = get_tile_features(tile)
+        if tf is None:
+            continue
+        arr, _, _ = tf
+        if chans is None:
+            # derive names by reading any tile via features.current_feature_names
+            from features import current_feature_names
+            names = current_feature_names()
+            chans = _select_patch_channels(names)
+        # bounds with padding via np.pad for simplicity
+        pad = ((0,0),(rad,rad),(rad,rad))
+        arrp = np.pad(arr, pad_width=pad, mode='edge')
+        rs, cs = ri, ci
+        if rs < 0 or cs < 0 or rs >= arr.shape[1] or cs >= arr.shape[2]:
+            continue
+        patch = arrp[chans, rs:rs+win, cs:cs+win].astype(np.float32)
+        Xp.append(patch)
+        Yp.append(1 if lab.startswith('agri') else 0)
+    if not Xp:
+        return {"scripted": None, "channels": [], "win": win}
+
+    # Downsample to cap patches per class
+    max_per = int(getattr(cfg, 'PATCH_CNN_MAX_PATCHES_PER_CLASS', 2000))
+    import numpy as _np
+    Xp = _np.stack(Xp, axis=0)
+    Yp = _np.array(Yp, dtype=_np.int64)
+    pos_idx = _np.where(Yp == 1)[0]; neg_idx = _np.where(Yp == 0)[0]
+    def _sample(idx):
+        if idx.size <= max_per: return idx
+        _np.random.seed(0); _np.random.shuffle(idx); return idx[:max_per]
+    keep = _np.concatenate([_sample(pos_idx), _sample(neg_idx)])
+    Xp = Xp[keep]; Yp = Yp[keep]
+
+    # Define tiny CNN
+    class TinyPatchCNN(nn.Module):
+        def __init__(self, in_ch, win):
+            super().__init__()
+            self.conv1 = nn.Conv2d(in_ch, 16, kernel_size=3, padding=1)
+            self.bn1 = nn.BatchNorm2d(16)
+            self.conv2 = nn.Conv2d(16, 32, kernel_size=3, padding=1)
+            self.bn2 = nn.BatchNorm2d(32)
+            self.head = nn.Linear(32 * win * win, 2)
+        def forward(self, x):
+            x = torch.relu(self.bn1(self.conv1(x)))
+            x = torch.relu(self.bn2(self.conv2(x)))
+            x = x.reshape(x.size(0), -1)
+            return self.head(x)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    net = TinyPatchCNN(in_ch=Xp.shape[1], win=win).to(device)
+    opt = torch.optim.Adam(net.parameters(), lr=float(getattr(cfg, 'PATCH_CNN_LR', 1e-3)))
+    crit = nn.CrossEntropyLoss()
+    bs = int(getattr(cfg, 'PATCH_CNN_BATCH', 64))
+    epochs = int(getattr(cfg, 'PATCH_CNN_EPOCHS', 5))
+    ds = torch.utils.data.TensorDataset(torch.from_numpy(Xp), torch.from_numpy(Yp))
+    loader = torch.utils.data.DataLoader(ds, batch_size=bs, shuffle=True)
+    net.train()
+    for ep in range(epochs):
+        tot = 0.0
+        for bx, by in loader:
+            bx = bx.to(device); by = by.to(device)
+            opt.zero_grad(); logits = net(bx); loss = crit(logits, by); loss.backward(); opt.step(); tot += loss.item()
+        if (ep + 1) % 2 == 0:
+            print(f"PatchCNN epoch {ep+1}/{epochs}, loss={tot/len(loader):.4f}")
+    net.eval()
+    scripted = torch.jit.script(net)
+    return {"scripted": scripted, "channels": chans, "win": win}
 
 
 def _load_predictions_by_tile(csv_path):
@@ -317,56 +537,55 @@ def save_agricultural_polygons_kml(round_folder, round_num, pred_csv=None):
     red_polys = []
     orange_polys = []
 
-    with Progress(
-        "[bold cyan]{task.description}",
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ) as prog:
-        task = prog.add_task("Polygonizing tiles", total=len(pred_map))
+    # Helper to polygonize a single tile
+    def _poly_from_tile(tile, rows, cols, probs):
+        tif = os.path.join(RAW_DATA_DIR, tile)
+        if not os.path.exists(tif):
+            return ([], [])
+        reds, oranges = [], []
+        with rasterio.open(tif) as src:
+            H, W = src.height, src.width
+            arr_probs = np.zeros((H, W), dtype=np.float32)
+            arr_probs[rows, cols] = probs
+            red_mask = arr_probs >= cfg.SIEVE_KEEP_PROB
+            orange_mask = (arr_probs >= cfg.MIN_AGRI_PROB) & (arr_probs < cfg.SIEVE_KEEP_PROB)
+            from scipy.ndimage import binary_closing, binary_fill_holes
+            red_mask = binary_fill_holes(binary_closing(red_mask))
+            orange_mask = binary_fill_holes(binary_closing(orange_mask))
+            if cfg.SIEVE_MIN_SIZE > 0:
+                red_mask = sieve(red_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
+                orange_mask = sieve(orange_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
+            orange_mask &= ~red_mask
+            transformer = None
+            if src.crs and not src.crs.is_geographic:
+                transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+            for geom, val in shapes(red_mask.astype("uint8"), mask=red_mask, transform=src.transform):
+                if val != 1:
+                    continue
+                poly = shape(geom)
+                if transformer:
+                    poly = shp_transform(transformer.transform, poly)
+                reds.append(poly)
+            for geom, val in shapes(orange_mask.astype("uint8"), mask=orange_mask, transform=src.transform):
+                if val != 1:
+                    continue
+                poly = shape(geom)
+                if transformer:
+                    poly = shp_transform(transformer.transform, poly)
+                oranges.append(poly)
+        return (reds, oranges)
 
-        for tile, (rows, cols, probs) in pred_map.items():
-            tif = os.path.join(RAW_DATA_DIR, tile)
-            if not os.path.exists(tif):
-                print(f"WARNING: Missing tile for predictions => {tile}")
-                prog.update(task, advance=1)
-                continue
-            with rasterio.open(tif) as src:
-                H, W = src.height, src.width
-                arr_probs = np.zeros((H, W), dtype=np.float32)
-                arr_probs[rows, cols] = probs
-                red_mask = arr_probs >= cfg.SIEVE_KEEP_PROB
-                orange_mask = (arr_probs >= cfg.MIN_AGRI_PROB) & (arr_probs < cfg.SIEVE_KEEP_PROB)
-                from scipy.ndimage import binary_closing, binary_fill_holes
-                # Apply morphology to each mask separately
-                red_mask = binary_fill_holes(binary_closing(red_mask))
-                orange_mask = binary_fill_holes(binary_closing(orange_mask))
-                # optional sieve
-                if cfg.SIEVE_MIN_SIZE > 0:
-                    red_mask = sieve(red_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
-                    orange_mask = sieve(orange_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
-                # ensure no overlap: orange excludes red
-                orange_mask &= ~red_mask
-                transformer = None
-                if src.crs and not src.crs.is_geographic:
-                    transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
-                # collect polygons for each class
-                for geom, val in shapes(red_mask.astype("uint8"), mask=red_mask, transform=src.transform):
-                    if val != 1:
-                        continue
-                    poly = shape(geom)
-                    if transformer:
-                        poly = shp_transform(transformer.transform, poly)
-                    red_polys.append(poly)
-                for geom, val in shapes(orange_mask.astype("uint8"), mask=orange_mask, transform=src.transform):
-                    if val != 1:
-                        continue
-                    poly = shape(geom)
-                    if transformer:
-                        poly = shp_transform(transformer.transform, poly)
-                    orange_polys.append(poly)
-            prog.update(task, advance=1)
+    # Parallelize per-tile polygonization
+    from joblib import Parallel, delayed
+    items = list(pred_map.items())
+    results = Parallel(n_jobs=-1, prefer="processes")(
+        delayed(_poly_from_tile)(tile, rc[0], rc[1], rc[2]) for tile, rc in items
+    )
+    for reds, oranges in results:
+        if reds:
+            red_polys.extend(reds)
+        if oranges:
+            orange_polys.extend(oranges)
 
     if not red_polys and not orange_polys:
         print(f"WARNING: No polygons (all probs < {cfg.MIN_AGRI_PROB})")
@@ -499,6 +718,8 @@ def active_learning_round(
     save_preds=True,
     return_metrics=False,
     top_n_predictions=None,
+    progress_enabled=True,
+    parallel_tiles=True,
 ):
     """Run one active learning round.
 
@@ -529,7 +750,6 @@ def active_learning_round(
     print(f"\n=== Starting Active Learning Round {round_num} ===")
     rnd_dir = out_dir or os.path.join(ROUNDS_DIR, f"round_{round_num}")
     os.makedirs(rnd_dir, exist_ok=True)
-    generate_grids_for_all_tiles()
 
     # load & featurize
     rows = list(csv.DictReader(open(labels_file)))
@@ -553,47 +773,319 @@ def active_learning_round(
     # keep X,y for representativeness computations
     free_unused_memory()
 
-    # inference + timing (ignore overlay/final-sweep artifacts in RAW_DATA_DIR)
-    all_tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-    tifs = [tp for tp in all_tifs if ("_overlay" not in os.path.basename(tp) and "_th" not in os.path.basename(tp))]
-    preds = []
+    # Decide whether we need per-tile inference (skip for metrics-only grid-search runs)
+    do_infer_tiles = save_preds or request_labels
+    total_pixels = 0
     start = time.time()
+    if do_infer_tiles:
+        # inference + timing (ignore overlay/final-sweep artifacts in RAW_DATA_DIR)
+        all_tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+        tifs = [tp for tp in all_tifs if ("_overlay" not in os.path.basename(tp) and "_th" not in os.path.basename(tp))]
+        pred_path = os.path.join(rnd_dir, "predictions.csv")
+        if save_preds and top_n_predictions is None and parallel_tiles:
+            # Parallel inference: each tile writes to its own chunk file; then concatenate
+            chunk_dir = os.path.join(rnd_dir, "temporary", "pred_chunks")
+            os.makedirs(chunk_dir, exist_ok=True)
+            from joblib import Parallel, delayed
+            def _infer_and_write(tp, _round=round_num, _model=model_choice):
+                rows = predict_entire_tile(tp, model)
+                base = os.path.basename(tp)
+                out_csv = os.path.join(chunk_dir, f"{base}.csv")
+                with open(out_csv, "w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob","ndvi"])
+                    w.writerows(rows)
+                # Optional: write a parquet chunk for global predictions
+                if getattr(cfg, 'PERSISTENT_PARQUET_ENABLED', False):
+                    try:
+                        import pyarrow as pa, pyarrow.parquet as pq
+                        cols = list(zip(*rows)) if rows else []
+                        if rows and len(cols) == 7:
+                            probs = [r[5] for r in rows]
+                            ent = [float(-(p*np.log(p + 1e-9) + (1-p)*np.log(1-p + 1e-9))) for p in probs]
+                            tbl = pa.table({
+                                'tile': [r[0] for r in rows],
+                                'row_idx': [r[1] for r in rows],
+                                'col_idx': [r[2] for r in rows],
+                                'center_lat': [r[3] for r in rows],
+                                'center_lon': [r[4] for r in rows],
+                                'predicted_prob': [r[5] for r in rows],
+                                'ndvi': [r[6] for r in rows],
+                                'entropy': ent,
+                                'round': [_round] * len(rows),
+                                'model': [_model] * len(rows),
+                            })
+                            out_parq = os.path.join(chunk_dir, f"{base}.parquet")
+                            pq.write_table(tbl, out_parq)
+                    except Exception:
+                        pass
+                return len(rows)
+            counts = Parallel(n_jobs=-1, prefer="threads")(delayed(_infer_and_write)(tp) for tp in tifs)
+            total_pixels = int(sum(counts))
+            # Concatenate into the final predictions.csv
+            blk = int(getattr(cfg, 'CONCAT_PROGRESS_BLOCK_ROWS', 200_000))
+            from rich.progress import Progress, BarColumn, TaskProgressColumn, TimeElapsedColumn, TimeRemainingColumn
+            print(f"Concatenating {len(tifs)} chunks (~{total_pixels} rows) ...")
+            with open(pred_path, "w", newline="") as outf:
+                wout = csv.writer(outf)
+                wout.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob","ndvi"])
+                with Progress("[bold cyan]Merging predictions", BarColumn(), TaskProgressColumn(), TimeElapsedColumn(), TimeRemainingColumn()) as p:
+                    task = p.add_task("merge", total=total_pixels)
+                    written = 0
+                    for tp in tifs:
+                        part = os.path.join(chunk_dir, f"{os.path.basename(tp)}.csv")
+                        try:
+                            with open(part, newline="") as inf:
+                                rd = csv.reader(inf)
+                                next(rd, None)
+                                buf = []
+                                for row in rd:
+                                    buf.append(row)
+                                    if len(buf) >= blk:
+                                        wout.writerows(buf); written += len(buf); buf.clear(); p.update(task, advance=blk)
+                                if buf:
+                                    wout.writerows(buf); written += len(buf); p.update(task, advance=len(buf))
+                        except Exception:
+                            continue
+            # Append parquet chunks to global store
+            if getattr(cfg, 'PERSISTENT_PARQUET_ENABLED', False):
+                try:
+                    import pyarrow as pa, pyarrow.parquet as pq
+                    gp_path = getattr(cfg, 'GLOBAL_PREDICTIONS_PARQUET', None)
+                    if gp_path:
+                        # Create/append dataset by combining all tile parquets
+                        schema = None
+                        writer = None
+                        os.makedirs(os.path.dirname(gp_path), exist_ok=True)
+                        with Progress("[bold cyan]Updating global predictions", BarColumn(), TaskProgressColumn(), TimeElapsedColumn(), TimeRemainingColumn()) as p2:
+                            task2 = p2.add_task("append", total=len(tifs))
+                            for tp in tifs:
+                                pfile = os.path.join(chunk_dir, f"{os.path.basename(tp)}.parquet")
+                                if not os.path.exists(pfile):
+                                    p2.update(task2, advance=1); continue
+                                tbl = pq.read_table(pfile)
+                                if writer is None:
+                                    writer = pq.ParquetWriter(gp_path, tbl.schema)
+                                writer.write_table(tbl)
+                                p2.update(task2, advance=1)
+                            if writer is not None:
+                                writer.close()
+                        # Mirror into highscore/probableAgri stores (same rows, different consumers)
+                        try:
+                            hs_path = getattr(cfg, 'HIGHSCORE_PARQUET', None)
+                            pa_path = getattr(cfg, 'PROBABLE_AGRI_PARQUET', None)
+                            if hs_path:
+                                # Append same table; downstream scoring reads entropy/prob fields
+                                writer = None
+                                for tp in tifs:
+                                    pfile = os.path.join(chunk_dir, f"{os.path.basename(tp)}.parquet")
+                                    if not os.path.exists(pfile):
+                                        continue
+                                    tbl = pq.read_table(pfile)
+                                    if writer is None:
+                                        writer = pq.ParquetWriter(hs_path, tbl.schema)
+                                    writer.write_table(tbl)
+                                if writer is not None:
+                                    writer.close()
+                            if pa_path:
+                                writer = None
+                                for tp in tifs:
+                                    pfile = os.path.join(chunk_dir, f"{os.path.basename(tp)}.parquet")
+                                    if not os.path.exists(pfile):
+                                        continue
+                                    tbl = pq.read_table(pfile)
+                                    if writer is None:
+                                        writer = pq.ParquetWriter(pa_path, tbl.schema)
+                                    writer.write_table(tbl)
+                                if writer is not None:
+                                    writer.close()
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+            # Run global aggregation from parquet (committee over history + KMLs)
+            if getattr(cfg, 'PERSISTENT_PARQUET_ENABLED', False):
+                try:
+                    from persistent_aggregator import rebuild_global_rankings, build_global_prediction_kmls
+                    rebuild_global_rankings(); build_global_prediction_kmls()
+                except Exception as e:
+                    print(f"Global aggregation failed: {e}")
+            # Cleanup chunk files
+            try:
+                for tp in tifs:
+                    p1 = os.path.join(chunk_dir, f"{os.path.basename(tp)}.csv")
+                    if os.path.exists(p1):
+                        os.remove(p1)
+                    p2 = os.path.join(chunk_dir, f"{os.path.basename(tp)}.parquet")
+                    if os.path.exists(p2):
+                        os.remove(p2)
+            except Exception:
+                pass
+        else:
+            # Sequential streaming with optional top-N heap
+            writer = None
+            if save_preds and top_n_predictions is None:
+                wf = open(pred_path, "w", newline="")
+                writer = csv.writer(wf)
+                writer.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob","ndvi"])
+            import heapq as _heapq
+            top_heap = []
+            heap_cap = int(top_n_predictions) if (top_n_predictions is not None and top_n_predictions > 0) else 0
+            idx_counter = 0
+            _use_prog = bool(progress_enabled)
+            if _use_prog:
+                prog_ctx = Progress(
+                    "[bold cyan]{task.description}",
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    TimeElapsedColumn(),
+                    TimeRemainingColumn(),
+                )
+                prog_ctx.__enter__()
+                task = prog_ctx.add_task("Running inference", total=len(tifs))
+            else:
+                prog_ctx = None
+                task = None
+            try:
+                # Prepare parquet chunk dir for optional persistent store
+                chunk_dir = os.path.join(rnd_dir, "temporary", "pred_chunks")
+                if getattr(cfg, 'PERSISTENT_PARQUET_ENABLED', False):
+                    os.makedirs(chunk_dir, exist_ok=True)
+                for tp in tifs:
+                    tile_preds = predict_entire_tile(tp, model)
+                    total_pixels += len(tile_preds)
+                    if save_preds:
+                        if top_n_predictions is None:
+                            writer.writerows(tile_preds)  # type: ignore[union-attr]
+                        else:
+                            for row in tile_preds:
+                                p = float(row[5])
+                                unc = 0.5 - abs(p - 0.5)
+                                if len(top_heap) < heap_cap:
+                                    _heapq.heappush(top_heap, (unc, idx_counter, row))
+                                else:
+                                    if heap_cap > 0 and unc > top_heap[0][0]:
+                                        _heapq.heapreplace(top_heap, (unc, idx_counter, row))
+                                idx_counter += 1
+                        # Optional parquet per-tile
+                        if getattr(cfg, 'PERSISTENT_PARQUET_ENABLED', False):
+                            try:
+                                import pyarrow as pa, pyarrow.parquet as pq
+                                base = os.path.basename(tp)
+                                probs = [r[5] for r in tile_preds]
+                                ent = [float(-(p*np.log(p + 1e-9) + (1-p)*np.log(1-p + 1e-9))) for p in probs]
+                                tbl = pa.table({
+                                    'tile': [r[0] for r in tile_preds],
+                                    'row_idx': [r[1] for r in tile_preds],
+                                    'col_idx': [r[2] for r in tile_preds],
+                                    'center_lat': [r[3] for r in tile_preds],
+                                    'center_lon': [r[4] for r in tile_preds],
+                                    'predicted_prob': probs,
+                                    'ndvi': [r[6] for r in tile_preds],
+                                    'entropy': ent,
+                                    'round': [round_num] * len(tile_preds),
+                                    'model': [model_choice] * len(tile_preds),
+                                })
+                                out_parq = os.path.join(chunk_dir, f"{base}.parquet")
+                                pq.write_table(tbl, out_parq)
+                            except Exception:
+                                pass
+                    if prog_ctx is not None and task is not None:
+                        prog_ctx.update(task, advance=1)
+            finally:
+                if writer is not None:
+                    try:
+                        wf.flush(); wf.close()  # type: ignore[name-defined]
+                    except Exception:
+                        pass
+                if prog_ctx is not None:
+                    try:
+                        prog_ctx.__exit__(None, None, None)
+                    except Exception:
+                        pass
+            # If top-N requested, write the selected rows now
+            if save_preds and top_n_predictions is not None and heap_cap > 0:
+                with open(pred_path, "w", newline="") as f:
+                    w = csv.writer(f)
+                    w.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob","ndvi"])
+                    for (_, __, row) in sorted(top_heap, key=lambda t: t[0], reverse=True):
+                        w.writerow(row)
+            # Append parquet chunks to global store (sequential branch)
+            if getattr(cfg, 'PERSISTENT_PARQUET_ENABLED', False):
+                try:
+                    import pyarrow as pa, pyarrow.parquet as pq
+                    gp_path = getattr(cfg, 'GLOBAL_PREDICTIONS_PARQUET', None)
+                    if gp_path:
+                        writer = None
+                        os.makedirs(os.path.dirname(gp_path), exist_ok=True)
+                        files = [f for f in os.listdir(chunk_dir)] if os.path.exists(chunk_dir) else []
+                        for fn in files:
+                            if not fn.endswith('.parquet'):
+                                continue
+                            pfile = os.path.join(chunk_dir, fn)
+                            tbl = pq.read_table(pfile)
+                            if writer is None:
+                                writer = pq.ParquetWriter(gp_path, tbl.schema)
+                            writer.write_table(tbl)
+                        if writer is not None:
+                            writer.close()
+                        # Mirror into highscore/probableAgri
+                        hs_path = getattr(cfg, 'HIGHSCORE_PARQUET', None)
+                        pa_path = getattr(cfg, 'PROBABLE_AGRI_PARQUET', None)
+                        if hs_path:
+                            writer = None
+                            for fn in files:
+                                if not fn.endswith('.parquet'):
+                                    continue
+                                pfile = os.path.join(chunk_dir, fn)
+                                tbl = pq.read_table(pfile)
+                                if writer is None:
+                                    writer = pq.ParquetWriter(hs_path, tbl.schema)
+                                writer.write_table(tbl)
+                            if writer is not None:
+                                writer.close()
+                        if pa_path:
+                            writer = None
+                            for fn in files:
+                                if not fn.endswith('.parquet'):
+                                    continue
+                                pfile = os.path.join(chunk_dir, fn)
+                                tbl = pq.read_table(pfile)
+                                if writer is None:
+                                    writer = pq.ParquetWriter(pa_path, tbl.schema)
+                                writer.write_table(tbl)
+                            if writer is not None:
+                                writer.close()
+                    # After updating parquet, run global aggregation + KMLs
+                    from persistent_aggregator import rebuild_global_rankings, build_global_prediction_kmls
+                    try:
+                        rebuild_global_rankings(); build_global_prediction_kmls()
+                    except Exception as e:
+                        print(f"Global aggregation failed: {e}")
+                    # cleanup parquet chunks
+                    try:
+                        if os.path.exists(chunk_dir):
+                            for fn in os.listdir(chunk_dir):
+                                if fn.endswith('.parquet'):
+                                    os.remove(os.path.join(chunk_dir, fn))
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        print(f"Total pixels inferred: {total_pixels}")
+        print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
 
-    def run_tile(tp):
-        tile_preds = predict_entire_tile(tp, model)
-        prog.update(task, advance=1)
-        return tile_preds
-
-    with Progress(
-        "[bold cyan]{task.description}",
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-        TimeRemainingColumn(),
-    ) as prog:
-        task = prog.add_task("Running inference", total=len(tifs))
-
-        results = Parallel(n_jobs=-1, prefer="threads")(
-            delayed(run_tile)(tp) for tp in tifs
-        )
-
-    for tile_preds in results:
-        preds.extend(tile_preds)
-    print(f"Total pixels inferred: {len(preds)}")
-    print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
+    # old parallel tile inference removed in favor of streaming per-tile writes
 
     # Optionally keep only top-N predictions by uncertainty
-    if top_n_predictions is not None:
-        prob_get = itemgetter(5)
-        preds.sort(key=lambda r: abs(prob_get(r) - 0.5), reverse=True)
-        preds = preds[:top_n_predictions]
+    # (Handled during streaming above.)
 
     # outputs
     if save_preds:
-        save_predictions(rnd_dir, preds)
+        print(f"Predictions written to {os.path.join(rnd_dir, 'predictions.csv')}")
+        save_agricultural_polygons_kml(rnd_dir, round_num)
     else:
-        print("Skipping predictions.csv generation.")
-    save_agricultural_polygons_kml(rnd_dir, round_num)
+        print("Skipping predictions.csv generation and polygonization.")
 
     # Evaluate against optional evaluation set
     stats_dir = os.path.join(rnd_dir, "statistics")
@@ -658,7 +1150,8 @@ def active_learning_round(
     # so that assisted labeling lists are always available across modes
     if save_preds:
         try:
-            _update_persistent_lists(preds, rows, X, y, round_num, rnd_dir)
+            pcsv = os.path.join(rnd_dir, "predictions.csv")
+            _update_persistent_lists_from_csv(pcsv, rows, X, y, round_num, rnd_dir)
         except Exception as e:
             print(f"Persistent list update error: {e}")
 
@@ -887,6 +1380,33 @@ def _update_persistent_lists(preds, train_rows, X_train, y_train, round_num, rou
             _write_points_kml(top_pa, cfg.PROBABLE_AGRI_KML_GLOBAL, placemark_prefix="PA")
             round_pa_kml = os.path.join(round_dir, f"probableAgri_top.kml")
             _write_points_kml(top_pa, round_pa_kml, placemark_prefix=f"PA_r{round_num}")
+            
+def _update_persistent_lists_from_csv(pred_csv, train_rows, X_train, y_train, round_num, round_dir):
+    """Lightweight adapter: load predictions.csv into the native preds list format and reuse logic.
+    
+    preds row format expected by _update_persistent_lists:
+      [tile:str, row:int, col:int, lat:float, lon:float, prob:float, ndvi:float]
+    """
+    if not os.path.exists(pred_csv):
+        return
+    preds = []
+    with open(pred_csv, newline="") as f:
+        rd = csv.DictReader(f)
+        for r in rd:
+            try:
+                preds.append([
+                    r["tile"],
+                    int(r["row_idx"]),
+                    int(r["col_idx"]),
+                    float(r["center_lat"]),
+                    float(r["center_lon"]),
+                    float(r["predicted_prob"]),
+                    float(r.get("ndvi", "nan")) if r.get("ndvi") not in (None, "",) else float("nan"),
+                ])
+            except Exception:
+                continue
+    if preds:
+        _update_persistent_lists(preds, train_rows, X_train, y_train, round_num, round_dir)
 
 
 def _write_points_kml(rows, out_path, placemark_prefix="#"):

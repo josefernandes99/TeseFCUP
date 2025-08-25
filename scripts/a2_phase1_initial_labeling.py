@@ -296,7 +296,7 @@ def generate_grid_kml(tile_path, patch_width, patch_height, out_path):
     xml = minidom.parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
     with open(out_path, 'wb') as f:
         f.write(xml)
-    print(f"Grid KML generated => {out_path}")
+    # Avoid verbose per-file logs; higher-level caller handles progress reporting.
 
 
 def generate_grids_for_all_tiles():
@@ -308,15 +308,29 @@ def generate_grids_for_all_tiles():
     if not tifs:
         print(f"No raw tiles in {RAW_DATA_DIR}; skipping grid creation.")
         return
-    for tp in tifs:
+    created = 0
+    skipped = 0
+    failed = 0
+    total = len(tifs)
+    for idx, tp in enumerate(tifs, 1):
         name = os.path.splitext(os.path.basename(tp))[0]
         out = os.path.join(GRID_KML_DIR, f"{name}_grid.kml")
         if os.path.exists(out):
+            skipped += 1
+            # Live update (single-line) for progress; orchestrator tee will persist each update in the log.
+            print(f"\rGenerating grid overlays {idx}/{total} (created={created}, skipped={skipped}, failed={failed})", end="", flush=True)
             continue
         try:
             generate_grid_kml(tp, patch_w, patch_h, out)
+            created += 1
         except Exception as e:
-            print(f"Failed to make grid for {tp}: {e}")
+            failed += 1
+            print(f"\nFailed to make grid for {tp}: {e}")
+        finally:
+            print(f"\rGenerating grid overlays {idx}/{total} (created={created}, skipped={skipped}, failed={failed})", end="", flush=True)
+    # End of progress line
+    print("")
+    print(f"Grid overlays: created={created}, skipped={skipped}, failed={failed}. Folder => {GRID_KML_DIR}")
 
 
 # ----- BALANCED SUBSET -----

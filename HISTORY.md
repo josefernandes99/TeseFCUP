@@ -2,6 +2,17 @@
 
 This file summarizes key changes and conclusions from recent Codex CLI sessions.
 
+## 2025‑08‑25 — Seed fix, KML log dedup, startup note removal
+- Seed range bugfix: Ensured all RNG seeds used for stratified splits are valid 32‑bit integers to satisfy sklearn’s `random_state` bounds. Replaced 64‑bit `urandom(8)` seeds with `secrets.randbits(32)` and masked fixed seeds with `& 0xFFFFFFFF`. File: `scripts/evaluation.py`.
+- Grid KML logs: Removed per‑tile “Grid KML generated => …” spam and replaced with a single live progress line plus a concise summary at the end. Suppressed verbose per‑file print inside the KML generator. File: `scripts/a2_phase1_initial_labeling.py`.
+- Startup message: Removed the initial note “pipeline now runs without GLCM textures or global normalization.” File: `scripts/ready_to_run_phase1.py`.
+
+## 2025‑08‑25 — Performance improvements (streaming, parallelization)
+- Streaming predictions: Inference now streams per‑tile results directly to disk. Default path uses per‑tile parallel inference that writes chunk CSVs and concatenates them, avoiding a giant in‑memory `preds` list. Top‑N uncertainty mode keeps a small heap. File: `scripts/a3_phase1_active_learning_round.py`.
+- Polygonization parallel: Per‑tile polygonization runs in parallel and then merges results, improving KML generation time. File: `scripts/a3_phase1_active_learning_round.py`.
+- Grid KML timing: Removed per‑round grid KML generation; grids are generated once during initial labeling. File: `scripts/a3_phase1_active_learning_round.py`.
+- Grid search parallel: Grid‑search combinations execute in parallel worker processes; each trains/evaluates independently (no per‑tile inference), then best is selected. File: `scripts/a4_phase1_active_learning_loop.py`.
+
 ## 2025‑08‑18
 - Grid Search: Focused SVM/RF grids; removed sieve from combinations (sieve is post‑cleanup, not predictive).
   - SVM grid: C=[2,3,5,7,10], gamma=['scale','auto',0.01,0.1], class_weight=[None,'balanced'], threshold=[0.50,0.55,0.60,0.65].
@@ -402,3 +413,18 @@ Notes
 
 Notes
 - Temporal/textural feature modes remain disabled in feature extraction; menu hints reflect this to avoid confusion. Future work can re-enable with precise schemas.
+## 2025‑08‑25 — Temporal + textures, spatial context, XGBoost, parquet stores, progress bars
+- Temporal features: Added across‑season summaries (min/max/mean/std/range and last‑first delta) for NDVI/NDMI/EVI. Robust to NaNs and schema inferred from on‑disk stacks. Files: scripts/features.py, scripts/config.py.
+- Texture features: Added lightweight texture proxies (rank‑entropy, local std as contrast, and homogeneity ≈ 1/(1+MAD)) on NDVI and B8 at 5×5 and 9×9 windows, guarded by size cap to avoid heavy compute. Files: scripts/features.py, scripts/config.py.
+- Neighbor pooling: Optional local mean/std for NDVI/B8/B4 with 7×7 and 11×11 windows (default ON). Files: scripts/features.py, scripts/config.py.
+- Patch CNN refiner: Optional tiny CNN trained on labeled patches; during inference, refines the top K% most‑uncertain pixels and blends with the base model. Toggleable (default OFF). Files: scripts/a3_phase1_active_learning_round.py, scripts/config.py.
+- XGBoost model: Added as a new backend (GPU‑friendly). Uses histogram tree method (GPU if available), auto `scale_pos_weight`, and integrates with existing wrappers. Files: scripts/a3_phase1_active_learning_round.py, scripts/a4_phase1_active_learning_loop.py, scripts/config.py, requirements.txt.
+- Easy feedback win: Added Rich progress bar during predictions chunk concatenation with 200k‑row update blocks; prints a concise merge summary. Files: scripts/a3_phase1_active_learning_round.py, scripts/config.py.
+- Persistent Parquet stores: Optional global append‑only Parquet datasets for all pixels each run: `global_predictions.parquet`, `highscore_store.parquet`, `probableAgri_store.parquet`. Each row includes tile/row/col/lat/lon, prob, ndvi, entropy, round, model. Top‑K CSV + KML summaries remain for human review. Files: scripts/a3_phase1_active_learning_round.py, scripts/config.py, requirements.txt.
+
+Notes
+- All new features are toggleable in config.py with clear documentation; defaults chosen to keep pipeline stable (neighbor pooling ON, patch‑CNN OFF, textures ON with safety cap, temporal ON).
+- Parquet writes require `pyarrow` (added). If unavailable, pipeline continues without persistent stores.
+- Global committee aggregator: Added scripts/persistent_aggregator.py to build global ranked highscore/probableAgri from the Parquet history using recency‑weighted per‑pixel model blending and committee disagreement. Outputs ranked Parquets plus top‑K CSVs and KMLs. Wired to run after each predictions merge. Config: HIGHSCORE_AGGR_WEIGHTS, PROBABLE_AGRI_AGGR_WEIGHTS, AGGR_RECENCY_ALPHA.
+- Global predictions KMLs: Builds overlays for FINAL_THRESHOLDS × FINAL_SIEVE_SIZES from global Parquet into labels/phase1/prediction_kmls/*.kml with progress bars. Config: PREDICTION_KMLS_DIR.
+- Removed PARQUET_STORAGE_LIMIT_GB per request.

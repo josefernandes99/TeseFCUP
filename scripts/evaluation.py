@@ -182,12 +182,14 @@ def evaluate_model_repeated(model, out_dir=None):
         n_repeats = 1
     seeds = []
     if getattr(cfg, "SPLIT_SEED_MODE", "random") == "fixed":
-        base = int(getattr(cfg, "SPLIT_RANDOM_SEED", 42))
-        seeds = [base + i for i in range(n_repeats)]
+        # Ensure seeds are always within [0, 2**32 - 1]
+        base = int(getattr(cfg, "SPLIT_RANDOM_SEED", 42)) & 0xFFFFFFFF
+        seeds = [((base + i) & 0xFFFFFFFF) for i in range(n_repeats)]
     else:
-        import os as _os
+        # Draw cryptographically-strong 32-bit seeds (compatible with sklearn/random_state bounds)
+        from secrets import randbits
         for _ in range(n_repeats):
-            seeds.append(int.from_bytes(_os.urandom(8), 'little'))
+            seeds.append(randbits(32))
 
     all_metrics = []
     first = None

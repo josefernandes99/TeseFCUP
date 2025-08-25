@@ -65,9 +65,26 @@ DUPLICATE_TOLERANCE = 0.0001
 # --------------------------
 # ACTIVE LEARNING CONFIG
 # --------------------------
-SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest"]  # Available model backends
+SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest", "XGBoost"]  # Available model backends
 SVM_PARAMS = {"C": 1.0, "kernel": "rbf", "gamma": "scale", "class_weight": "balanced"}  # C≈0.5–10; gamma: "scale"/"auto"
 RF_PARAMS = {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 1, "class_weight": "balanced"}  # trees≈200–400; depth≈8–14
+# XGBoost (GPU‑friendly). tree_method: 'hist' (CPU) or 'gpu_hist' (GPU); predictor auto‑selects.
+# scale_pos_weight will be computed dynamically per round (neg/pos) if XGB_USE_AUTO_SPW is True.
+XGB_USE_GPU = True
+XGB_USE_AUTO_SPW = True
+XGB_PARAMS = {
+    "n_estimators": 400,       # 300–600 typical
+    "learning_rate": 0.1,     # 0.05–0.15 typical
+    "max_depth": 8,           # 6–10 typical; controls interaction complexity
+    "min_child_weight": 4,    # regularization; larger => simpler trees
+    "subsample": 0.8,         # row sampling per tree
+    "colsample_bytree": 0.8,  # feature sampling per tree
+    "reg_lambda": 2.0,        # L2 regularization (lambda)
+    "reg_alpha": 0.0,         # L1 regularization (alpha)
+    "tree_method": "gpu_hist" if True else "hist",  # auto‑overridden by XGB_USE_GPU
+    "predictor": "auto",
+    "random_state": 42,
+}
 
 # Splits
 TRAIN_FRACTION = 0.7  # 0.6–0.8 typical; must satisfy TRAIN+VAL+TEST ≤ 1.0
@@ -115,8 +132,40 @@ FEATURE_CACHE_MAX_GB = 4               # Planned soft cap (eviction not enforced
 
 # Feature selection & importance
 FEATURE_SET = "base"  # one of: base, temporal_only, textures_only, temporal_textures, full
-TEXTURE_WINDOW_SIZE = 5
+
+# --- Temporal features (multi‑time summaries) ---
+# Enable to add across‑season stats for selected indices: min/max/mean/std/range and (last-first) delta.
+TEMPORAL_FEATURES_ENABLED = True
+TEMPORAL_INDICES = ["NDVI", "NDMI", "EVI"]  # indices to summarize across seasons
+
+# --- Neighbor pooling (spatial context for tabular models) ---
+# Adds local mean/std for selected bands/indices using square windows (in pixels).
+NEIGHBOR_POOLING_ENABLED = True
+NEIGHBOR_POOLING_BANDS = ["NDVI", "B8", "B4"]  # choose stable, informative channels
+NEIGHBOR_POOLING_WINDOWS = [7, 11]               # window sizes (odd ints)
+
+# --- Texture features (lightweight, GLCM‑like) ---
+# Adds local entropy (rank‑entropy) + local contrast/std + homogeneity proxies for selected bands.
+# Designed for robustness and speed; quantizes values to 8‑bit internally. Safe on large tiles.
+TEXTURE_GLCM_ENABLED = True
+TEXTURE_GLCM_BANDS = ["NDVI", "B8"]
+TEXTURE_GLCM_WINDOWS = [5, 9]
+TEXTURE_GLCM_LEVELS = 32           # quantization levels for entropy
+
 RUN_PERMUTATION_IMPORTANCE = True
+
+# --- Patch CNN refiner (targeted spatial context) ---
+# Trains a tiny CNN on labeled patches and blends its score with the base model
+# for the top K% most‑uncertain pixels during inference. Enable to add extra
+# texture/shape cues without heavy compute.
+PATCH_CNN_ENABLED = False           # Off by default; turn on to refine uncertain pixels
+PATCH_CNN_WINDOW = 9                # Patch size (odd int), e.g., 9=>9x9
+PATCH_CNN_TOP_UNCERTAIN_FRAC = 0.10 # Fraction of pixels refined per tile (0.05–0.20 typical)
+PATCH_CNN_BLEND_ALPHA = 0.5         # Blend weight: alpha*CNN + (1-alpha)*base
+PATCH_CNN_MAX_PATCHES_PER_CLASS = 2000  # Training cap per class to limit compute
+PATCH_CNN_EPOCHS = 5
+PATCH_CNN_LR = 1e-3
+PATCH_CNN_BATCH = 64
 
 # --------------------------
 # POSTPROCESSING CONFIG
@@ -131,6 +180,35 @@ FINAL_THRESHOLDS = [0.35, 0.4, 0.45, 0.5]  # Sweep around MIN_AGRI_PROB
 FINAL_SIEVE_SIZES = [0, 5, 10, 20]         # Include a wider sieve range for robustness
 FINAL_MORPH_OPEN = False
 FINAL_MORPH_KERNEL_SIZES = [3]
+
+# --------------------------
+# PERSISTENT STORES (PARQUET)
+# --------------------------
+# Global, run‑to‑run persistent stores to accumulate information.
+# These are optional and require pyarrow (+pandas). The pipeline runs without them.
+PERSISTENT_PARQUET_ENABLED = True
+PERSISTENT_PARQUET_DIR = LABELS_DIR  # Folder to store parquet datasets
+GLOBAL_PREDICTIONS_PARQUET = os.path.join(PERSISTENT_PARQUET_DIR, "global_predictions.parquet")
+HIGHSCORE_PARQUET = os.path.join(PERSISTENT_PARQUET_DIR, "highscore_store.parquet")
+PROBABLE_AGRI_PARQUET = os.path.join(PERSISTENT_PARQUET_DIR, "probableAgri_store.parquet")
+
+# Aggregator outputs (ranked global lists produced from parquet history)
+HIGHSCORE_RANKED_PARQUET = os.path.join(PERSISTENT_PARQUET_DIR, "highscore_ranked.parquet")
+PROBABLE_AGRI_RANKED_PARQUET = os.path.join(PERSISTENT_PARQUET_DIR, "probableAgri_ranked.parquet")
+
+# Aggregation settings
+# Committee scoring uses (uncertainty, disagreement, consistency) for highscore,
+# and (confidence minus disagreement penalty) for probable-agri. Recency weight
+# emphasizes newer rounds: weight = exp(alpha * (round / max_round)).
+HIGHSCORE_AGGR_WEIGHTS = {"uncertainty": 0.5, "disagreement": 0.4, "consistency": 0.1}
+PROBABLE_AGRI_AGGR_WEIGHTS = {"confidence": 0.8, "disagreement_penalty": 0.2}
+AGGR_RECENCY_ALPHA = 0.1
+
+# Global prediction KMLs
+PREDICTION_KMLS_DIR = os.path.join(PERSISTENT_PARQUET_DIR, "prediction_kmls")
+
+# Concatenation progress (predictions chunk merge)
+CONCAT_PROGRESS_BLOCK_ROWS = 200_000  # Progress update step during chunk concatenation
 
 # --------------------------
 # LABEL NOTES OPTIONS

@@ -102,7 +102,6 @@ def clear_checkpoint():
 
 def main():
     print("=== Starting PythonProject Pipeline ===\n")
-    print("Note: pipeline now runs without GLCM textures or global normalization.\n")
     # Set up console log tee (stdout + stderr) to data/phase1/consoleLogs.txt
     try:
         from config import DATA_DIR
