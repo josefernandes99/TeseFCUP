@@ -41,8 +41,8 @@ def stratified_train_val_test_indices(
         val_frac = cfg.VAL_FRACTION
     if test_frac is None:
         test_frac = cfg.TEST_FRACTION
-    if random_state is None:
-        random_state = cfg.SPLIT_RANDOM_SEED
+    # Use the provided random_state as-is. When None, sklearn will behave non-deterministically,
+    # which is desired for SPLIT_SEED_MODE == 'random'.
 
     # Normalize fractions to not exceed 1.0
     total = train_frac + val_frac + test_frac

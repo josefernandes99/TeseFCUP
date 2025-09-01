@@ -9,6 +9,7 @@ import certifi
 import ee
 
 from config import RAW_DATA_DIR, TIMESTAMPS, CLOUDY_PIXEL_PERCENTAGE, BANDS
+from progress_utils import new_progress
 
 # SSL fix for Earth Engine
 os.environ["SSL_CERT_FILE"]   = certifi.where()
@@ -25,11 +26,45 @@ MAX_TILE_SIZE = 0.05    # degrees per tile
 
 islands = [
     {
-        "name": "Testing",
-        "coords": [
-            [-24.400884,16.651622],[-24.394042,16.652504],[-24.392954,16.645461],
-            [-24.400168,16.644662],[-24.400884,16.651622]
-        ]
+            "name": "Sao_Nicolau",
+            "coords": [
+                [-24.31466793,16.47636763],[-24.32707974,16.47891714],[-24.33402444,16.48557407],
+                [-24.33535429,16.50610994],[-24.33727517,16.5195633],[-24.34658402,16.52706844],
+                [-24.35308546,16.54604242],[-24.36268984,16.55043165],[-24.36461072,16.56274931],
+                [-24.36623607,16.57464146],[-24.3818986,16.57648185],[-24.39357162,16.5804457],
+                [-24.40716551,16.58950562],[-24.42016837,16.59573407],[-24.42563547,16.60436862],
+                [-24.42992051,16.61342742],[-24.4307613,16.63491685],[-24.42972697,16.65048391],
+                [-24.42027035,16.65939902],[-24.40667646,16.66520069],[-24.39884519,16.66774771],
+                [-24.39116169,16.67086069],[-24.38466026,16.67340764],[-24.37786332,16.67581305],
+                [-24.37180517,16.67666202],[-24.36486047,16.67652052],[-24.35791575,16.67736949],
+                [-24.35215313,16.68218019],[-24.34831137,16.68373657],[-24.34092338,16.68656632],
+                [-24.33294434,16.68401954],[-24.32732949,16.68147275],[-24.31550871,16.67595455],
+                [-24.30634759,16.6698702],[-24.29999394,16.66364416],[-24.29452682,16.65954052],
+                [-24.28846868,16.65104996],[-24.28196724,16.64793666],[-24.2810807,16.6417099],
+                [-24.27561359,16.63944557],[-24.26497488,16.6417099],[-24.25743914,16.64227598],
+                [-24.24872131,16.64227598],[-24.24192437,16.64411572],[-24.2355707,16.6473706],
+                [-24.22670512,16.64991786],[-24.21724851,16.64906878],[-24.20823516,16.64765363],
+                [-24.20173374,16.64411572],[-24.19464127,16.64312509],[-24.17528471,16.63364312],
+                [-24.17040866,16.63052954],[-24.16109979,16.62147155],[-24.14750591,16.61566855],
+                [-24.13893584,16.6169424],[-24.13391199,16.62161308],[-24.1294792,16.62486834],
+                [-24.11278237,16.61920699],[-24.1017004,16.61920699],[-24.08899305,16.61807469],
+                [-24.07643348,16.61623471],[-24.06224854,16.61269622],[-24.04333531,16.60491131],
+                [-24.03624284,16.59939091],[-24.03299213,16.59316258],[-24.03195782,16.58820808],
+                [-24.02013704,16.58834964],[-24.01378337,16.58325346],[-24.00639538,16.57659991],
+                [-24.00270139,16.57065398],[-24.00609987,16.56215948],[-24.01023712,16.55323986],
+                [-24.01718185,16.54701004],[-24.02752503,16.54446141],[-24.04200546,16.54870909],
+                [-24.05160984,16.55394778],[-24.06121422,16.54870909],[-24.0745126,16.54658526],
+                [-24.08692443,16.54771798],[-24.09785863,16.54870909],[-24.10953165,16.54785957],
+                [-24.12090916,16.55309827],[-24.13021801,16.56668993],[-24.15181922,16.5740104],
+                [-24.16733399,16.58321218],[-24.17014141,16.58816681],[-24.18875915,16.58816681],
+                [-24.20043217,16.58689277],[-24.2116619,16.58929927],[-24.22363044,16.58944084],
+                [-24.23648553,16.58745902],[-24.24402128,16.57726646],[-24.25672861,16.57726646],
+                [-24.26308227,16.57245313],[-24.27150458,16.56126873],[-24.27593737,16.55985294],
+                [-24.28037017,16.55093321],[-24.27918808,16.54201306],[-24.28509847,16.53691565],
+                [-24.28775815,16.5302605],[-24.29012229,16.52162262],[-24.29292974,16.51482532],
+                [-24.29736253,16.50788617],[-24.30076099,16.50335434],[-24.30223858,16.49627316],
+                [-24.30149979,16.48905008],[-24.30061324,16.48281818],[-24.31466793,16.47636763]
+            ]
     }
 ]
 
@@ -313,11 +348,7 @@ def tile_bbox(coords):
 def export_full_year(island, tile_coords, tile_idx):
     ee_tile = ee.Geometry.Polygon(tile_coords)
 
-    # Elevation + terrain
-    dem     = ee.Image("USGS/SRTMGL1_003").clip(ee_tile)
-    elev    = dem.rename("ELEVATION")
-    terrain = ee.Terrain.slope(dem).rename("SLOPE")\
-              .addBands(ee.Terrain.aspect(dem).rename("ASPECT"))
+    # Note: Terrain bands (ELEVATION/SLOPE/ASPECT) removed due to incomplete coverage
 
     # Build per-season composites + indices
     season_imgs = []
@@ -332,14 +363,19 @@ def export_full_year(island, tile_coords, tile_idx):
         med = col.median().rename([f"{b}_s{sidx+1}" for b in BANDS])
 
         # aliases
-        nir   = med.select(f"B8_s{sidx+1}")
-        red   = med.select(f"B4_s{sidx+1}")
-        blue  = med.select(f"B2_s{sidx+1}")
-        swir1 = med.select(f"B11_s{sidx+1}")
-        swir2 = med.select(f"B12_s{sidx+1}")
+        nir    = med.select(f"B8_s{sidx+1}")
+        nir_n  = med.select(f"B8A_s{sidx+1}")
+        red    = med.select(f"B4_s{sidx+1}")
+        green  = med.select(f"B3_s{sidx+1}")
+        blue   = med.select(f"B2_s{sidx+1}")
+        redge5 = med.select(f"B5_s{sidx+1}")
+        swir1  = med.select(f"B11_s{sidx+1}")
+        swir2  = med.select(f"B12_s{sidx+1}")
 
-        # indices
-        ndvi = nir.subtract(red).divide(nir.add(red))\
+        # indices (safe divisions: replace 0 denom by 1)
+        # Safe NDVI: avoid division by zero
+        ndvi_den = nir.add(red)
+        ndvi = nir.subtract(red).divide(ndvi_den.where(ndvi_den.eq(0), 1))\
                    .rename(f"NDVI_s{sidx+1}")
         evi  = med.expression(
                    "2.5*((NIR-RED)/(NIR+6*RED-7.5*BLUE+1))",
@@ -349,15 +385,43 @@ def export_full_year(island, tile_coords, tile_idx):
                    "2.5*((NIR-RED)/(NIR+2.4*RED+1))",
                    {'NIR':nir,'RED':red}
                ).rename(f"EVI2_s{sidx+1}")
-        nbr  = nir.subtract(swir2).divide(nir.add(swir2))\
+        # Safe NBR/NDMI: avoid division by zero
+        nbr_den = nir.add(swir2)
+        nbr  = nir.subtract(swir2).divide(nbr_den.where(nbr_den.eq(0), 1))\
                    .rename(f"NBR_s{sidx+1}")
-        ndmi = nir.subtract(swir1).divide(nir.add(swir1))\
+        ndmi_den = nir.add(swir1)
+        ndmi = nir.subtract(swir1).divide(ndmi_den.where(ndmi_den.eq(0), 1))\
                    .rename(f"NDMI_s{sidx+1}")
 
-        season_imgs.append(med.addBands([ndvi, evi, evi2, nbr, ndmi]))
+        # New indices (coverage-verified from GEE script)
+        # NDRE: (NIR - RedEdge) / (NIR + RedEdge) using B8 and B5
+        ndre_den = nir.add(redge5)
+        ndre = nir.subtract(redge5).divide(ndre_den.where(ndre_den.eq(0), 1))\
+                   .rename(f"NDRE_s{sidx+1}")
+        # GNDVI: (NIR - GREEN) / (NIR + GREEN)
+        gndvi_den = nir.add(green)
+        gndvi = nir.subtract(green).divide(gndvi_den.where(gndvi_den.eq(0), 1))\
+                    .rename(f"GNDVI_s{sidx+1}")
+        # OSAVI: 1.16*(NIR - RED) / (NIR + RED + 0.16)
+        osavi = med.expression(
+                    "1.16*(NIR-RED)/(NIR+RED+0.16)",
+                    {'NIR':nir, 'RED':red}
+                ).rename(f"OSAVI_s{sidx+1}")
+        # NDWI (McFeeters): (GREEN - NIR) / (GREEN + NIR)
+        ndwi_den = green.add(nir)
+        ndwi = green.subtract(nir).divide(ndwi_den.where(ndwi_den.eq(0), 1))\
+                   .rename(f"NDWI_s{sidx+1}")
+        # BSI: (SWIR2 + RED - NIR - BLUE) / (SWIR2 + RED + NIR + BLUE)
+        bsi_num = swir2.add(red).subtract(nir).subtract(blue)
+        bsi_den = swir2.add(red).add(nir).add(blue)
+        bsi = bsi_num.divide(bsi_den.where(bsi_den.eq(0), 1))\
+                 .rename(f"BSI_s{sidx+1}")
 
-    # stack all → Float64
-    full = ee.Image.cat(season_imgs).addBands(elev).addBands(terrain).toDouble()
+        season_imgs.append(med.addBands([ndvi, evi, evi2, nbr, ndmi, ndre, gndvi, osavi, ndwi, bsi]))
+
+    # stack all → Float64; fill masked values with 0 to avoid NaNs in exports
+    # Terrain bands were removed to ensure equal band availability across pixels
+    full = ee.Image.cat(season_imgs).unmask(0).toDouble()
 
     desc = f"{island['name']}_tile{tile_idx}"
     task = ee.batch.Export.image.toDrive(
@@ -392,12 +456,19 @@ def download_data():
             tasks.append(export_full_year(isl, tc, tidx))
 
         print("Monitoring export tasks for this island...")
-        while True:
-            states = {t.id: t.status().get("state") for t in tasks}
-            print(states)
-            if all(s in ("COMPLETED", "FAILED") for s in states.values()):
-                break
-            time.sleep(10)
+        with new_progress() as prog:
+            task = prog.add_task(f"Exporting tiles for {isl['name']}", total=len(tasks))
+            done = 0
+            last_done = -1
+            while True:
+                states = {t.id: t.status().get("state") for t in tasks}
+                done = sum(1 for s in states.values() if s in ("COMPLETED", "FAILED"))
+                if done != last_done:
+                    prog.update(task, completed=done)
+                    last_done = done
+                if done >= len(tasks):
+                    break
+                time.sleep(5)
 
         print(f"\n✅ Island '{isl['name']}' complete.")
         input("Please download these tiles from Google Drive and clear space. Press Enter to continue to the next island...")

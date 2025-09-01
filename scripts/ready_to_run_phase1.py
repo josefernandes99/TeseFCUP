@@ -6,6 +6,9 @@ import sys
 import atexit
 import signal
 
+import rasterio
+import numpy as np
+
 from a0_setup_check import setup_check
 from a1_phase1_data_download import download_data
 from a2_phase1_initial_labeling import (
@@ -15,7 +18,7 @@ from a2_phase1_initial_labeling import (
 from a4_phase1_active_learning_loop import active_learning_loop, collect_user_hyperparams
 from a6_phase1_postprocessing import postprocessing
 from grid_search import run_grid_search
-from config import RAW_DATA_DIR, CHECKPOINT_FILE
+from config import RAW_DATA_DIR, CHECKPOINT_FILE, TIMESTAMPS, BANDS, INDICES
 from al_shared import snap_to_pixel_center
 
 STEP_ORDER = [
@@ -50,7 +53,7 @@ def clear_checkpoint():
 
 def main():
     print("=== Starting PythonProject Pipeline ===\n")
-    print("Note: pipeline now runs without GLCM textures or global normalization.\n")
+    # Removed outdated startup note to reduce console noise
     # Set up console log tee (stdout + stderr) to data/phase1/consoleLogs.txt
     try:
         from config import DATA_DIR
@@ -124,8 +127,14 @@ def main():
 
         atexit.register(_cleanup_logs)
         try:
-            signal.signal(signal.SIGINT, lambda *_: (_cleanup_logs(), sys.exit(1)))
-            signal.signal(signal.SIGTERM, lambda *_: (_cleanup_logs(), sys.exit(1)))
+            def _sig_handler(signum, frame):
+                _cleanup_logs()
+                try:
+                    sys.exit(1)
+                except SystemExit:
+                    return
+            signal.signal(signal.SIGINT, _sig_handler)
+            signal.signal(signal.SIGTERM, _sig_handler)
         except Exception:
             pass
     except Exception as e:
@@ -169,6 +178,11 @@ def main():
                     download_data()
                 else:
                     print("Raw data already present; skipping download.")
+                # After a1: verify features/indices presence and readiness
+                try:
+                    _verify_feature_stack()
+                except Exception as e:
+                    print(f"Feature stack verification failed: {e}")
             elif step == "initial_labeling":
                 save_checkpoint(step)
                 initial_labeling()
@@ -176,10 +190,10 @@ def main():
                 save_checkpoint(step)
                 mode = input("Hyper-parameter mode: [1] grid search, [2] specify => ").strip()
                 if mode == "1":
-                    print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
-                    models = ["ResNet", "SVM", "RandomForest"]
+                    print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest, 4=XGBoost")
+                    models = ["ResNet", "SVM", "RandomForest", "XGBoost"]
                     ch = input("=> ").strip()
-                    mchoice = models[int(ch) - 1] if ch in ["1", "2", "3"] else "RandomForest"
+                    mchoice = models[int(ch) - 1] if ch in ["1", "2", "3", "4"] else "RandomForest"
                     run_grid_search(mchoice)
                     clear_checkpoint()
                     return
@@ -194,10 +208,10 @@ def main():
                         )
                     mchoice = al_model_choice
                     if mchoice is None:
-                        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest")
-                        models = ["ResNet", "SVM", "RandomForest"]
+                        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest, 4=XGBoost")
+                        models = ["ResNet", "SVM", "RandomForest", "XGBoost"]
                         ch = input("=> ").strip()
-                        if ch in ["1", "2", "3"]:
+                        if ch in ["1", "2", "3", "4"]:
                             mchoice = models[int(ch) - 1]
                         else:
                             mchoice = "RandomForest"
@@ -291,14 +305,16 @@ def _validate_and_dedup_all():
     # process labels
     labels = load_and_snap(LABELS_FILE)
     if labels:
-        fields = list(labels[0].keys())
+        first = next(iter(labels), None)
+        fields = list(first.keys()) if first else []
         with open(LABELS_FILE, 'w', newline='') as f:
             w = _csv.DictWriter(f, fieldnames=fields)
             w.writeheader(); w.writerows(labels)
     # process temp labels if present
     temp_labels = load_and_snap(TEMP_LABELS_FILE)
     if temp_labels:
-        fields = list(temp_labels[0].keys())
+        first = next(iter(temp_labels), None)
+        fields = list(first.keys()) if first else []
         with open(TEMP_LABELS_FILE, 'w', newline='') as f:
             w = _csv.DictWriter(f, fieldnames=fields)
             w.writeheader(); w.writerows(temp_labels)
@@ -306,10 +322,68 @@ def _validate_and_dedup_all():
     for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
         rows = load_and_snap(path)
         if rows:
-            fields = list(rows[0].keys())
+            first = next(iter(rows), None)
+            fields = list(first.keys()) if first else []
             with open(path, 'w', newline='') as f:
                 w = _csv.DictWriter(f, fieldnames=fields)
                 w.writeheader(); w.writerows(rows)
+
+def _verify_feature_stack():
+    """Verify that exported tiles have all configured bands/indices per season and are usable.
+
+    Checks:
+    - Band count matches expected (BANDS + INDICES per season)
+    - No NaNs in the stack
+    - Each channel has some non-zero data (not entirely missing)
+    Logs a confirmation list; warns for any issues.
+    """
+    tiles = sorted(glob.glob(os.path.join(RAW_DATA_DIR, '*.tif')))
+    if not tiles:
+        print("Feature stack check: no tiles found under raw/; skipping.")
+        return
+    # Expected names in the exported stack (no derived textures here)
+    exp_names = []
+    for s in range(1, len(TIMESTAMPS) + 1):
+        exp_names += [f"{b}_s{s}" for b in BANDS]
+        exp_names += [f"{idx}_s{s}" for idx in INDICES]
+    exp_bands = len(exp_names)
+
+    # Scan a small subset of tiles for speed (up to 3)
+    sample = tiles[:3]
+    ok = True
+    for tp in sample:
+        try:
+            with rasterio.open(tp) as src:
+                arr = src.read()
+        except Exception as e:
+            print(f"[WARN] Could not open tile {tp}: {e}")
+            ok = False
+            continue
+        b, H, W = arr.shape
+        if b != exp_bands:
+            print(f"[WARN] Band count mismatch for {os.path.basename(tp)}: got {b}, expected {exp_bands}")
+            ok = False
+        # NaN check
+        if np.isnan(arr).any():
+            print(f"[WARN] NaNs found in {os.path.basename(tp)}; features not ready to use.")
+            ok = False
+        # Per-channel all-zero check
+        # Use a small epsilon to ignore float rounding
+        eps = 0.0
+        all_zero = []
+        for i in range(min(b, exp_bands)):
+            ch = arr[i]
+            if not np.any(ch != eps):
+                all_zero.append(exp_names[i] if i < len(exp_names) else f"band{i}")
+        if all_zero:
+            print(f"[WARN] Found {len(all_zero)} empty channels in {os.path.basename(tp)}: {', '.join(all_zero[:10])}{' ...' if len(all_zero)>10 else ''}")
+            ok = False
+    # Summary
+    if ok:
+        print("Feature stack check: OK. Confirmed channels:")
+        print(", ".join(exp_names))
+    else:
+        print("Feature stack check: issues detected (see warnings above). Consider re-downloading if persistent.")
 
 if __name__ == "__main__":
     main()

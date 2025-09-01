@@ -5,16 +5,32 @@ circular imports."""
 
 import os
 from typing import Dict, Tuple, Optional
+from collections import OrderedDict
 
 import numpy as np
 import rasterio
 from pyproj import Transformer
 
 from config import RAW_DATA_DIR, FEATURE_CACHE_DIR, FEATURE_CACHE_ENABLED
-from features import add_derived_features
+from features import add_derived_features, current_feature_names
 
-# tile cache: tile name -> (features array, transform, CRS)
-_tile_cache: Dict[str, Tuple[np.ndarray, rasterio.Affine, rasterio.crs.CRS]] = {}
+# tile cache (LRU): tile name -> (features array, transform, CRS)
+_tile_cache: "OrderedDict[str, Tuple[np.ndarray, rasterio.Affine, rasterio.crs.CRS]]" = OrderedDict()
+
+def _cache_put(tile: str, value: Tuple[np.ndarray, rasterio.Affine, rasterio.crs.CRS]):
+    """Insert into LRU cache with max size bound from config."""
+    from config import FEATURE_CACHE_MAX_TILES_IN_MEMORY
+    _tile_cache[tile] = value
+    _tile_cache.move_to_end(tile)
+    try:
+        max_items = max(1, int(FEATURE_CACHE_MAX_TILES_IN_MEMORY))
+    except Exception:
+        max_items = 2
+    while len(_tile_cache) > max_items:
+        try:
+            _tile_cache.popitem(last=False)
+        except Exception:
+            break
 
 __all__ = [
     "extract_features_from_label",
@@ -36,7 +52,7 @@ def extract_features_from_label(row: Dict[str, str]):
         with rasterio.open(tif_path) as src:
             raw = src.read().astype(np.float32)
             arr, _ = add_derived_features(raw)
-            _tile_cache[tile] = (arr, src.transform, src.crs)
+            _cache_put(tile, (arr, src.transform, src.crs))
 
     arr, transform, crs = _tile_cache[tile]
     x, y = lon, lat
@@ -50,41 +66,63 @@ def extract_features_from_label(row: Dict[str, str]):
 
 
 def get_tile_features(tile_name: str) -> Optional[Tuple[np.ndarray, rasterio.Affine, rasterio.crs.CRS]]:
-    """Return cached per-tile features, transform and CRS; load if needed."""
+    """Return per-tile features, transform, and CRS; robust to cache races.
+
+    Never assumes the cache entry exists after computation; always returns the
+    freshly computed tuple even if an eviction happens concurrently.
+    """
     tif_path = os.path.join(RAW_DATA_DIR, tile_name)
     if not os.path.exists(tif_path):
         return None
-    if tile_name not in _tile_cache:
-        # Try disk cache first
-        cache_path = os.path.join(FEATURE_CACHE_DIR, f"{os.path.splitext(tile_name)[0]}.npz")
-        if FEATURE_CACHE_ENABLED and os.path.exists(cache_path):
+    # Fast path: in-memory cache hit
+    if tile_name in _tile_cache:
+        try:
+            return _tile_cache[tile_name]
+        except KeyError:
+            # Rare race: fall through to recompute
+            pass
+    # Prepare disk cache path
+    cache_path = os.path.join(FEATURE_CACHE_DIR, f"{os.path.splitext(tile_name)[0]}.npz")
+    # Try disk cache first
+    if FEATURE_CACHE_ENABLED and os.path.exists(cache_path):
+        try:
+            data = np.load(cache_path, allow_pickle=True)
+            arr = data["arr"]
+            transform = rasterio.Affine(*data["transform"]) if "transform" in data else None
+            crs_wkt = data["crs_wkt"].item() if "crs_wkt" in data else None
+            crs = rasterio.crs.CRS.from_wkt(wkt=crs_wkt) if crs_wkt else None
+            # Validate channel count vs current config
             try:
-                data = np.load(cache_path, allow_pickle=True)
-                arr = data["arr"]
-                transform = rasterio.Affine(*data["transform"]) if "transform" in data else None
-                crs_wkt = data["crs_wkt"].item() if "crs_wkt" in data else None
-                crs = rasterio.crs.CRS.from_wkt(wkt=crs_wkt) if crs_wkt else None
-                _tile_cache[tile_name] = (arr, transform, crs)
-                return _tile_cache[tile_name]
+                exp = len(current_feature_names())
+            except Exception:
+                exp = None
+            if exp is not None and hasattr(arr, 'shape') and arr.ndim == 3 and arr.shape[0] != exp:
+                raise ValueError("stale_feature_cache")
+            value = (arr, transform, crs)
+            _cache_put(tile_name, value)
+            return value
+        except Exception:
+            # Cache missing or stale; compute from raw
+            pass
+    # Compute from raw
+    with rasterio.open(tif_path) as src:
+        raw = src.read().astype(np.float32)
+        arr, _ = add_derived_features(raw)
+        value = (arr, src.transform, src.crs)
+        _cache_put(tile_name, value)
+        # Persist disk cache best-effort
+        if FEATURE_CACHE_ENABLED:
+            os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
+            try:
+                np.savez_compressed(
+                    cache_path,
+                    arr=arr,
+                    transform=np.array(src.transform)[:6],
+                    crs_wkt=np.array(src.crs.to_wkt() if src.crs else ""),
+                )
             except Exception:
                 pass
-        with rasterio.open(tif_path) as src:
-            raw = src.read().astype(np.float32)
-            arr, _ = add_derived_features(raw)
-            _tile_cache[tile_name] = (arr, src.transform, src.crs)
-            # Persist disk cache
-            if FEATURE_CACHE_ENABLED:
-                os.makedirs(FEATURE_CACHE_DIR, exist_ok=True)
-                try:
-                    np.savez_compressed(
-                        cache_path,
-                        arr=arr,
-                        transform=np.array(src.transform)[:6],
-                        crs_wkt=np.array(src.crs.to_wkt() if src.crs else ""),
-                    )
-                except Exception:
-                    pass
-    return _tile_cache[tile_name]
+        return value
 
 
 def pixel_key(tile: str, row: int, col: int) -> str:

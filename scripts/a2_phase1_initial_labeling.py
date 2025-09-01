@@ -296,7 +296,8 @@ def generate_grid_kml(tile_path, patch_width, patch_height, out_path):
     xml = minidom.parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
     with open(out_path, 'wb') as f:
         f.write(xml)
-    print(f"Grid KML generated => {out_path}")
+    # Do not spam per-tile logs; a single summary will be printed by
+    # generate_grids_for_all_tiles() after attempting all tiles.
 
 
 def generate_grids_for_all_tiles():
@@ -308,6 +309,8 @@ def generate_grids_for_all_tiles():
     if not tifs:
         print(f"No raw tiles in {RAW_DATA_DIR}; skipping grid creation.")
         return
+    failed = []
+    created = 0
     for tp in tifs:
         name = os.path.splitext(os.path.basename(tp))[0]
         out = os.path.join(GRID_KML_DIR, f"{name}_grid.kml")
@@ -315,8 +318,15 @@ def generate_grids_for_all_tiles():
             continue
         try:
             generate_grid_kml(tp, patch_w, patch_h, out)
+            created += 1
         except Exception as e:
-            print(f"Failed to make grid for {tp}: {e}")
+            failed.append((tp, str(e)))
+    if failed:
+        print("error on grid kml generation")
+        for tp, err in failed:
+            print(f" - {os.path.basename(tp)}: {err}")
+    else:
+        print("all grid kml generated")
 
 
 # ----- BALANCED SUBSET -----
@@ -372,6 +382,15 @@ def manual_labeling(num_labels):
         print(f"Added manual label at ({lat},{lon}).")
         labels.append({"lat":lat,"lon":lon,"tile":tile,"label":lab,"notes":note})
         export_labels_kml()
+        try:
+            # remove from global lists and temp labels if present
+            from al_shared import snap_to_pixel_center as _snap
+            snapped = _snap(tile, lat, lon)
+            if snapped:
+                la_s, lo_s, r_s, c_s = snapped
+                _remove_pixel_from_lists(tile, r_s, c_s, la_s, lo_s)
+        except Exception:
+            pass
         # convert to tile CRS for patch display
         with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
             x, y = lon, lat
@@ -418,6 +437,15 @@ def global_sampling_labeling(num_patches):
             csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
         print(f"Added global label at ({lat},{lon}).")
         export_labels_kml()
+        try:
+            # remove from global lists and temp labels if present
+            from al_shared import snap_to_pixel_center as _snap
+            snapped = _snap(tile, lat, lon)
+            if snapped:
+                la_s, lo_s, r_s, c_s = snapped
+                _remove_pixel_from_lists(tile, r_s, c_s, la_s, lo_s)
+        except Exception:
+            pass
         added += 1
     export_labels_kml()
     return added

@@ -4,6 +4,7 @@ Writes: data/phase1/rounds/grid_<MODEL>_summary/results.json
 """
 
 import os
+from multiprocessing import cpu_count
 import json
 from itertools import product
 import numpy as np
@@ -109,3 +110,9 @@ def run_grid_search(model_choice):
 if __name__ == "__main__":
     run_grid_search("SVM")
 
+# Threading caps to avoid OpenBLAS/OpenMP warnings and oversubscription
+_N_THREADS = str(min(8, max(1, cpu_count()), 24))
+os.environ["OMP_NUM_THREADS"] = _N_THREADS
+os.environ["MKL_NUM_THREADS"] = _N_THREADS
+os.environ.setdefault("OPENBLAS_NUM_THREADS", _N_THREADS)
+os.environ.setdefault("NUMEXPR_NUM_THREADS", _N_THREADS)

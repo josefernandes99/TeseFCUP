@@ -4,9 +4,14 @@ import shutil
 import csv
 
 import config as cfg
-from a3_phase1_active_learning_round import active_learning_round, candidate_selection_from_csv
+from a3_phase1_active_learning_round import (
+    active_learning_round,
+    candidate_selection_from_csv,
+    candidate_selection_from_predictions,
+)
 from grid_search import generate_param_combinations
 from config import LABELS_FILE, TEMP_LABELS_FILE
+from progress_utils import new_progress
 
 def initialize_temp_labels():
     if not os.path.exists(TEMP_LABELS_FILE):
@@ -68,15 +73,9 @@ def collect_user_hyperparams(model_choice):
         parts.extend([f"ne-{ne}", f"md-{md}", f"ml-{ml}", f"cw-{cw_val}"])
     th = input("MIN_AGRI_PROB [0.3,0.4,0.5,0.6]? => ").strip() or str(cfg.MIN_AGRI_PROB)
     sv = input("SIEVE_MIN_SIZE [0,2,5,10,20]? => ").strip() or str(cfg.SIEVE_MIN_SIZE)
-    # Feature set selection
-    print("Feature set => 1=base, 2=base+temporal, 3=base+textures, 4=base+temporal+textures, 5=full")
-    fs_map = {"1": "base", "2": "temporal_only", "3": "textures_only", "4": "temporal_textures", "5": "full"}
-    fsel = input("=> ").strip()
-    fset = fs_map.get(fsel, cfg.FEATURE_SET)
     params["MIN_AGRI_PROB"] = float(th)
     params["SIEVE_MIN_SIZE"] = int(sv)
-    params["FEATURE_SET"] = fset
-    parts.extend([f"th-{th}", f"sieve-{sv}", f"feats-{fset}"])
+    parts.extend([f"th-{th}", f"sieve-{sv}"])
     params["NAME"] = "_".join(parts)
     return params
 
@@ -141,18 +140,20 @@ def active_learning_loop(
             base_sieve = cfg.SIEVE_MIN_SIZE
             base_svm = cfg.SVM_PARAMS.copy()
             base_rf = cfg.RF_PARAMS.copy()
-            base_fs = cfg.FEATURE_SET
+            # no feature-set toggles; always use full enabled features
 
             results = []
-            for name, params in combos:
-                combo_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", name)
+            with new_progress() as prog:
+                ptask = prog.add_task("Grid search combos", total=len(combos))
+                for name, params in combos:
+                    combo_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", name)
 
                 # backup current settings
                 old_min = cfg.MIN_AGRI_PROB
                 old_sieve = cfg.SIEVE_MIN_SIZE
                 old_svm = cfg.SVM_PARAMS.copy()
                 old_rf = cfg.RF_PARAMS.copy()
-                old_fs = cfg.FEATURE_SET
+                # no feature-set toggles
 
                 # apply params
                 cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
@@ -161,8 +162,7 @@ def active_learning_loop(
                     cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
                 if "RF_PARAMS" in params:
                     cfg.RF_PARAMS.update(params["RF_PARAMS"])
-                if "FEATURE_SET" in params:
-                    cfg.FEATURE_SET = params["FEATURE_SET"]
+                # FEATURE_SET removed; always use all features
 
                 metrics = active_learning_round(
                     r,
@@ -174,21 +174,21 @@ def active_learning_loop(
                     return_metrics=True,
                 )
                 results.append((name, params, metrics))
+                prog.update(ptask, advance=1)
 
                 # restore
                 cfg.MIN_AGRI_PROB = old_min
                 cfg.SIEVE_MIN_SIZE = old_sieve
                 cfg.SVM_PARAMS = old_svm
                 cfg.RF_PARAMS = old_rf
-                cfg.FEATURE_SET = old_fs
+                # no feature-set restore needed
 
             # restore to baseline before scoring
             cfg.MIN_AGRI_PROB = base_min
             cfg.SIEVE_MIN_SIZE = base_sieve
             cfg.SVM_PARAMS = base_svm
             cfg.RF_PARAMS = base_rf
-            cfg.FEATURE_SET = base_fs
-            # FEATURE_SET remains as global default
+            # no feature-set state to restore
 
             def score(metrics):
                 return metrics.get("macro_f1", metrics.get("auc", 0.0)) if metrics else 0.0
@@ -213,25 +213,28 @@ def active_learning_loop(
                 cfg.SVM_PARAMS.update(best_params["SVM_PARAMS"])
             if "RF_PARAMS" in best_params:
                 cfg.RF_PARAMS.update(best_params["RF_PARAMS"])
-            if "FEATURE_SET" in best_params:
-                cfg.FEATURE_SET = best_params["FEATURE_SET"]
+            # FEATURE_SET removed; ignore
 
             out_dir = os.path.join(cfg.ROUNDS_DIR, f"round_{r}", best_name)
             # In infinite mode: run train/infer/eval first (to produce predictions),
             # then ask ONCE whether to proceed to candidate labeling; no post-round prompt.
             if infinite:
-                _ = active_learning_round(
+                res = active_learning_round(
                     r,
                     TEMP_LABELS_FILE,
                     mchoice,
                     request_labels=False,
                     out_dir=out_dir,
-                    save_preds=True,
+                    save_preds=False,
+                    return_predictions=True,
                 )
                 go = input("Proceed to candidate labeling for this round? [Y/N] => ").strip().lower()
                 if go.startswith("y"):
-                    pred_csv = os.path.join(out_dir, "predictions.csv")
-                    tmp = candidate_selection_from_csv(pred_csv, out_dir, r)
+                    if isinstance(res, dict) and res.get("pred_csv"):
+                        tmp = candidate_selection_from_csv(res["pred_csv"], out_dir, r)
+                    else:
+                        preds = res.get("preds") if isinstance(res, dict) else None
+                        tmp = candidate_selection_from_predictions(preds, out_dir, r) if preds is not None else None
                 else:
                     tmp = None
             else:
@@ -241,7 +244,7 @@ def active_learning_loop(
                     mchoice,
                     request_labels=(r < nr),
                     out_dir=out_dir,
-                    save_preds=True,
+                    save_preds=False,
                 )
             chosen_params = best_params
         else:
@@ -252,7 +255,7 @@ def active_learning_loop(
             old_sieve = cfg.SIEVE_MIN_SIZE
             old_svm = cfg.SVM_PARAMS.copy()
             old_rf = cfg.RF_PARAMS.copy()
-            old_fs = cfg.FEATURE_SET
+            # no feature-set backup needed
 
             cfg.MIN_AGRI_PROB = params.get("MIN_AGRI_PROB", cfg.MIN_AGRI_PROB)
             cfg.SIEVE_MIN_SIZE = params.get("SIEVE_MIN_SIZE", cfg.SIEVE_MIN_SIZE)
@@ -260,23 +263,26 @@ def active_learning_loop(
                 cfg.SVM_PARAMS.update(params["SVM_PARAMS"])
             if "RF_PARAMS" in params:
                 cfg.RF_PARAMS.update(params["RF_PARAMS"])
-            if "FEATURE_SET" in params:
-                cfg.FEATURE_SET = params["FEATURE_SET"]
+            # FEATURE_SET removed; ignore
 
             if infinite:
-                # Train/infer/eval first to produce predictions; ask ONCE before labeling
-                _ = active_learning_round(
+                # Train/infer/eval first to produce predictions in-memory; ask ONCE before labeling
+                res = active_learning_round(
                     r,
                     TEMP_LABELS_FILE,
                     mchoice,
                     request_labels=False,
                     out_dir=combo_dir,
-                    save_preds=True,
+                    save_preds=False,
+                    return_predictions=True,
                 )
                 go = input("Proceed to candidate labeling for this round? [Y/N] => ").strip().lower()
                 if go.startswith('y'):
-                    pred_csv = os.path.join(combo_dir, "predictions.csv")
-                    tmp = candidate_selection_from_csv(pred_csv, combo_dir, r)
+                    if isinstance(res, dict) and res.get("pred_csv"):
+                        tmp = candidate_selection_from_csv(res["pred_csv"], combo_dir, r)
+                    else:
+                        preds = res.get("preds") if isinstance(res, dict) else None
+                        tmp = candidate_selection_from_predictions(preds, combo_dir, r) if preds is not None else None
                 else:
                     tmp = None
             else:
@@ -286,13 +292,14 @@ def active_learning_loop(
                     mchoice,
                     request_labels=(r < nr),
                     out_dir=combo_dir,
+                    save_preds=False,
                 )
 
             cfg.MIN_AGRI_PROB = old_min
             cfg.SIEVE_MIN_SIZE = old_sieve
             cfg.SVM_PARAMS = old_svm
             cfg.RF_PARAMS = old_rf
-            cfg.FEATURE_SET = old_fs
+            # no feature-set restore needed
             chosen_params = params
 
         # Post-round bookkeeping

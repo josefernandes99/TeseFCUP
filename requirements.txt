@@ -23,6 +23,7 @@ scikit-image==0.25.2
 numba==0.59.1
 filelock==3.13.1
 matplotlib==3.8.4
+xgboost==2.0.3
 scikit-image==0.25.2
 numba==0.59.1
 filelock==3.13.1
