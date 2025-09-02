@@ -7,10 +7,13 @@ from scipy.ndimage import uniform_filter
 def _season_feature_names():
     seasons = list(range(1, len(TIMESTAMPS) + 1))
     names = []
+    terrain = list(getattr(cfg, "TERRAIN_BANDS", ["ELEVATION", "SLOPE", "ASPECT"]))
     for s in seasons:
         names += [f"{b}_s{s}" for b in BANDS]
         for idx in INDICES:
             names.append(f"{idx}_s{s}")
+        # DEM-derived terrain per season (static across time, replicated per season)
+        names += [f"{tb}_s{s}" for tb in terrain]
     return names
 
 def _base_feature_names():
@@ -60,17 +63,7 @@ def add_derived_features(arr):
     names : list[str]
         Names corresponding to the augmented feature stack.
     """
-    # Backward-compat: if legacy tiles include trailing terrain bands
-    # (ELEVATION, SLOPE, ASPECT) appended after all seasonal stacks,
-    # drop the last 3 bands so we do not use them.
-    try:
-        expected = len(_season_feature_names())
-        if arr.shape[0] > expected and (arr.shape[0] - expected) == 3:
-            arr = arr[:expected]
-    except Exception:
-        pass
-
-    # No terrain/aspect features; pass through and add textures
+    # Pass-through raw stack (now includes terrain replicated per season), then add textures
     arr_aug = arr
     names = _base_feature_names()
     # Always use all available derived features

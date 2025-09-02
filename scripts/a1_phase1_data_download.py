@@ -348,9 +348,18 @@ def tile_bbox(coords):
 def export_full_year(island, tile_coords, tile_idx):
     ee_tile = ee.Geometry.Polygon(tile_coords)
 
-    # Note: Terrain bands (ELEVATION/SLOPE/ASPECT) removed due to incomplete coverage
+    # DEM terrain base (static). Replicate per-season to keep stacks aligned.
+    # Source: NASADEM (global public). Alternative if available: COPERNICUS/DEM/GLO-30
+    # Important: Terrain algorithms expect a band named 'elevation', so compute
+    # slope/aspect from the raw band before renaming to ELEVATION.
+    dem_raw = ee.Image('NASA/NASADEM_HGT/001').select('elevation')
+    terr = ee.Algorithms.Terrain(dem_raw)
+    slope = terr.select('slope').rename('SLOPE')
+    aspect = terr.select('aspect').rename('ASPECT')
+    dem = dem_raw.rename('ELEVATION')
+    terrain_base = dem.addBands([slope, aspect])
 
-    # Build per-season composites + indices
+    # Build per-season composites + indices + terrain
     season_imgs = []
     for sidx, (start, end) in enumerate(TIMESTAMPS):
         col = (ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
@@ -417,10 +426,14 @@ def export_full_year(island, tile_coords, tile_idx):
         bsi = bsi_num.divide(bsi_den.where(bsi_den.eq(0), 1))\
                  .rename(f"BSI_s{sidx+1}")
 
-        season_imgs.append(med.addBands([ndvi, evi, evi2, nbr, ndmi, ndre, gndvi, osavi, ndwi, bsi]))
+        season_img = med.addBands([ndvi, evi, evi2, nbr, ndmi, ndre, gndvi, osavi, ndwi, bsi])
+        # Add terrain replicated for this season with season-suffixed band names
+        terrain_season = terrain_base.rename([
+            f"ELEVATION_s{sidx+1}", f"SLOPE_s{sidx+1}", f"ASPECT_s{sidx+1}"
+        ])
+        season_imgs.append(season_img.addBands(terrain_season))
 
     # stack all → Float64; fill masked values with 0 to avoid NaNs in exports
-    # Terrain bands were removed to ensure equal band availability across pixels
     full = ee.Image.cat(season_imgs).unmask(0).toDouble()
 
     desc = f"{island['name']}_tile{tile_idx}"

@@ -74,7 +74,13 @@ DUPLICATE_TOLERANCE = 0.0001
 # ACTIVE LEARNING CONFIG
 # --------------------------
 SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest", "XGBoost"]  # Available model backends
-SVM_PARAMS = {"C": 1.0, "kernel": "rbf", "gamma": "scale", "class_weight": "balanced"}  # C≈0.5–10; gamma: "scale"/"auto"
+SVM_PARAMS = {  # C≈0.5–10; gamma: "scale"/"auto"; cache_size in MB
+    "C": 1.0,
+    "kernel": "rbf",
+    "gamma": "scale",
+    "class_weight": "balanced",
+    "cache_size": 1024,
+}
 RF_PARAMS = {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 1, "class_weight": "balanced"}  # trees≈200–400; depth≈8–14
 XGB_PARAMS = {  # Tuned for speed+accuracy; can be grid-searched
     "n_estimators": 400,
@@ -188,3 +194,10 @@ REFRESH_KD_WORKERS = 16             # cKDTree internal workers per query (parall
 GZIP_COMPRESSLEVEL = 1              # 1–3 is fast; higher compresses more but is slower
 
 # ANN/hnswlib removed: representativeness uses exact sklearn NN only.
+
+# --------------------------
+# TERRAIN / DEM FEATURES
+# --------------------------
+# Always include per-season copies of DEM‐derived terrain attributes to keep
+# the exported stack season-aligned with spectral inputs.
+TERRAIN_BANDS = ["ELEVATION", "SLOPE", "ASPECT"]

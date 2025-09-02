@@ -19,6 +19,7 @@ from a4_phase1_active_learning_loop import active_learning_loop, collect_user_hy
 from a6_phase1_postprocessing import postprocessing
 from grid_search import run_grid_search
 from config import RAW_DATA_DIR, CHECKPOINT_FILE, TIMESTAMPS, BANDS, INDICES
+import config as cfg
 from al_shared import snap_to_pixel_center
 
 STEP_ORDER = [
@@ -346,6 +347,8 @@ def _verify_feature_stack():
     for s in range(1, len(TIMESTAMPS) + 1):
         exp_names += [f"{b}_s{s}" for b in BANDS]
         exp_names += [f"{idx}_s{s}" for idx in INDICES]
+        for tb in getattr(cfg, 'TERRAIN_BANDS', ["ELEVATION", "SLOPE", "ASPECT"]):
+            exp_names.append(f"{tb}_s{s}")
     exp_bands = len(exp_names)
 
     # Scan a small subset of tiles for speed (up to 3)

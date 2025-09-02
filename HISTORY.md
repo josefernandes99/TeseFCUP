@@ -37,3 +37,13 @@ This file summarizes key changes and conclusions from recent Codex CLI sessions.
 - Combo sweep scope: restrict final sweep combinations to threshold (`th`) and sieve size (`s`) only; remove morphology (`m`) variants from final-round tags and runs. Config `FINAL_MORPH_OPEN=False` for clarity.
 - Persistent lists: make `refresh_lists.py` and `refresh_global_lists_full()` robust when no labels/features are available. Highscore and probableAgri now populate with all pixels (ranked by uncertainty and probability respectively) and generate their KMLs even without representativeness distances.
 - Post-sweep UX: add progress bars for per-combo summarization/evaluation and the final comparison build, so there is visible progress after the "Final sweep" bar completes.
+## 2025‑09‑01 — Re‑add DEM terrain bands and SVM cache size
+- Terrain bands back in pipeline: ELEVATION, SLOPE, ASPECT replicated per season (static DEM applied to each timeframe) and included end‑to‑end.
+  - Export: Added NASADEM elevation with `ee.Terrain.products` slope/aspect and suffixed `_s#` per timeframe.
+    - File: `scripts/a1_phase1_data_download.py`
+  - Features: Expect terrain bands in season feature names and include them when constructing derived features (NDVI textures unchanged).
+    - File: `scripts/features.py`
+  - Verification: Feature stack check updated to include terrain bands in expected raw export channels.
+    - File: `scripts/ready_to_run_phase1.py`
+- New SVM hyperparameter: `cache_size` (default 2048 MB) configurable in `config.py` and passed through to `sklearn.svm.SVC`.
+  - File: `scripts/config.py`
