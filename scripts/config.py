@@ -26,6 +26,7 @@ PROBABLE_AGRI_FILE = os.path.join(LABELS_DIR, "probableAgri.csv")
 HIGHSCORE_KML_GLOBAL = os.path.join(LABELS_DIR, "highscore_top.kml")
 PROBABLE_AGRI_KML_GLOBAL = os.path.join(LABELS_DIR, "probableAgri_top.kml")
 FINAL_LABELS_FILE = os.path.join(LABELS_DIR, "finalLabels.csv")
+SKIPPED_PIXELS_FILE = os.path.join(LABELS_DIR, "skipped.csv")
 if not os.path.exists(GRID_KML_DIR):
     os.makedirs(GRID_KML_DIR, exist_ok=True)
 
@@ -75,11 +76,11 @@ DUPLICATE_TOLERANCE = 0.0001
 # --------------------------
 SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest", "XGBoost"]  # Available model backends
 SVM_PARAMS = {  # C≈0.5–10; gamma: "scale"/"auto"; cache_size in MB
-    "C": 1.0,
+    "C": 3.0,
     "kernel": "rbf",
     "gamma": "scale",
     "class_weight": "balanced",
-    "cache_size": 1024,
+    "cache_size": 2048,
 }
 RF_PARAMS = {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 1, "class_weight": "balanced"}  # trees≈200–400; depth≈8–14
 XGB_PARAMS = {  # Tuned for speed+accuracy; can be grid-searched
@@ -103,14 +104,14 @@ CV_FOLDS = 5               # 3–5 typical; more folds = more compute
 CV_AUTO_REDUCE = True      # Reduce folds to ≥2 per minority class when data is small
 
 # Calibration
-CALIBRATION_METHOD = "sigmoid"  # "sigmoid" fast; "isotonic" needs more data
+CALIBRATION_METHOD = "isotonic"  # "sigmoid" fast; "isotonic" needs more data
 CALIBRATION_FOLDS = 3           # 3–5 typical
 
 # Candidate selection
 NUM_CANDIDATES_PER_ROUND = 25          # 20–50 typical (depends on label capacity)
-CANDIDATE_PROB_LOWER = 0.35              # Must be ≤ MIN_AGRI_PROB; defines lower bound of candidate band
+CANDIDATE_PROB_LOWER = 0.30              # Must be ≤ MIN_AGRI_PROB; defines lower bound of candidate band
 CANDIDATE_DBSCAN_EPS_KM = 1.5           # 0.5–3.0 km typical; spatial diversity
-CANDIDATE_NEGATIVE_QUOTA = 0.25         # 0 disables; use 10–30% of candidates when enabled
+CANDIDATE_NEGATIVE_QUOTA = 0.30         # 0 disables; use 10–30% of candidates when enabled
 NEG_LIKE_PROB_RANGE = (0.35, 0.4)      # Base/fallback; dynamically adjusted from MIN_AGRI_PROB via NEG_LIKE_PROB_DELTA
 NEG_LIKE_PROB_DELTA = 0.05             # Effective prob range = (MIN_AGRI_PROB - DELTA, MIN_AGRI_PROB)
 NEG_LIKE_NDVI_RANGE = (0.15, 0.45)        # Agri-like NDVI window (tune per region)
@@ -130,33 +131,33 @@ PROBABLE_AGRI_KML_TOP_PIXELS = 50000    # Cap per-pixel KML to avoid huge files 
 RESNET_EPOCHS = 10       # 5–20 typical
 RESNET_LR = 0.001        # 1e-4–3e-3 typical
 BATCH_SIZE = 32          # Tune to memory
-MIN_AGRI_PROB = 0.4      # Decision threshold (Orange ≥ this). Ensure CANDIDATE_PROB_LOWER ≤ this
+MIN_AGRI_PROB = 0.35      # Decision threshold (Orange ≥ this). Ensure CANDIDATE_PROB_LOWER ≤ this
 
 # Inference performance
 INFER_CHUNKING_ENABLED = True          # Improves stability on large tiles; no effect on results
-INFER_MAX_PIXELS_PER_BATCH = 400_000   # 100k–500k typical; adjust to RAM
+INFER_MAX_PIXELS_PER_BATCH = 1_500_000   # 100k–500k typical; adjust to RAM
 FEATURE_CACHE_ENABLED = True           # Cache derived features per tile to disk
 FEATURE_CACHE_DIR = os.path.join(DATA_DIR, "cache")
-FEATURE_CACHE_MAX_TILES_IN_MEMORY = 4   # LRU bound to avoid RAM blow-outs
+FEATURE_CACHE_MAX_TILES_IN_MEMORY = 10   # LRU bound to avoid RAM blow-outs
 
 # Feature selection & importance
 FEATURE_SET = "base"  # one of: base, temporal_only, textures_only, temporal_textures, full
-TEXTURE_WINDOW_SIZE = 5
+TEXTURE_WINDOW_SIZE = 7
 RUN_PERMUTATION_IMPORTANCE = True
 REPEATED_VALIDATION_REPEATS = 5   # >1 enables repeated validation with mean/std aggregation
 
 # --------------------------
 # POSTPROCESSING CONFIG
 # --------------------------
-SIEVE_MIN_SIZE = 5
-SIEVE_KEEP_PROB = 0.90            # Must be > MIN_AGRI_PROB. Red (very certain) ≥ this; Orange ∈ [MIN_AGRI_PROB, SIEVE_KEEP_PROB)
-SIEVE_KEEP_MODE = "component"      # "component" keeps whole component if any pixel ≥ SIEVE_KEEP_PROB; else "pixel" keeps only high-prob pixels
+SIEVE_MIN_SIZE = 10
+SIEVE_KEEP_PROB = 0.85            # Must be > MIN_AGRI_PROB. Red (very certain) ≥ this; Orange ∈ [MIN_AGRI_PROB, SIEVE_KEEP_PROB)
+SIEVE_KEEP_MODE = "pixel"      # "component" keeps whole component if any pixel ≥ SIEVE_KEEP_PROB; else "pixel" keeps only high-prob pixels
 SIEVE_USE_KEEP_PROB = True         # If True, apply SIEVE_KEEP_PROB in component/pixel rules; else fall back to MIN_AGRI_PROB
 
 # Final sweep (thresholds, sieve, morphology)
 FINAL_SWEEP_ENABLED = True
-FINAL_THRESHOLDS = [0.35, 0.4, 0.45, 0.5]  # Sweep around MIN_AGRI_PROB
-FINAL_SIEVE_SIZES = [0, 5, 10, 20]         # Include a wider sieve range for robustness
+FINAL_THRESHOLDS = [0.30, 0.35, 0.40]  # Sweep around MIN_AGRI_PROB
+FINAL_SIEVE_SIZES = [0, 5, 10]         # Include a wider sieve range for robustness
 # Final-round combos only sweep threshold (th) and sieve (s); morphology disabled
 FINAL_MORPH_OPEN = False
 FINAL_MORPH_KERNEL_SIZES = [3]
@@ -181,16 +182,16 @@ NOTE_OPTIONS = [
 # --------------------------
 # Inference batch tuning per model (overrides are clamped by INFER_MAX_PIXELS_PER_BATCH)
 AUTO_BATCH_TUNING_ENABLED = True
-INFER_BATCH_OVERRIDE_SVM = 200_000
+INFER_BATCH_OVERRIDE_SVM = 1_500_000
 INFER_BATCH_OVERRIDE_RANDOMFOREST = 400_000
 INFER_BATCH_OVERRIDE_XGBOOST = 500_000
 INFER_BATCH_OVERRIDE_RESNET = 200_000
-INFER_TILE_THREADS = 4        # Number of tiles processed in parallel during inference
+INFER_TILE_THREADS = 10        # Number of tiles processed in parallel during inference
 
 # Refresh/per-tile metrics optimization
 REFRESH_CHUNK_ROWS = 300_000        # Rows per chunk when computing per-tile metrics
-REFRESH_TILE_THREADS = 4            # Number of tiles processed in parallel (threads)
-REFRESH_KD_WORKERS = 16             # cKDTree internal workers per query (parallel in C)
+REFRESH_TILE_THREADS = 2            # Number of tiles processed in parallel (threads)
+REFRESH_KD_WORKERS = 6              # cKDTree internal workers per query (parallel in C)
 GZIP_COMPRESSLEVEL = 1              # 1–3 is fast; higher compresses more but is slower
 
 # ANN/hnswlib removed: representativeness uses exact sklearn NN only.
@@ -201,3 +202,12 @@ GZIP_COMPRESSLEVEL = 1              # 1–3 is fast; higher compresses more but 
 # Always include per-season copies of DEM‐derived terrain attributes to keep
 # the exported stack season-aligned with spectral inputs.
 TERRAIN_BANDS = ["ELEVATION", "SLOPE", "ASPECT"]
+
+# --------------------------
+# FEATURE EXCLUSION (OPTIONAL)
+# --------------------------
+# To temporarily exclude certain spectral bands from features (without
+# re-exporting GeoTIFFs), list their base names here (e.g., ["B9", "B1"]).
+# This affects training/inference and candidate selection features only; the
+# raw tiles remain unchanged.
+EXCLUDED_BANDS = ["B1", "B9"]

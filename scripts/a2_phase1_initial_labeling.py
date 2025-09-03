@@ -16,6 +16,7 @@ from config import (
     TEMP_LABELS_FILE, ROI_COORDS, NOTE_OPTIONS,
     HIGHSCORE_FILE, PROBABLE_AGRI_FILE
 )
+from al_shared import snap_to_pixel_center, load_skipped_set, record_skipped_pixel
 
 def ensure_labels_file():
     os.makedirs(os.path.dirname(LABELS_FILE), exist_ok=True)
@@ -248,6 +249,42 @@ def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, ou
     print(f"KML file generated at {dest}")
 
 
+def _get_pixel_corners(src, row, col):
+    """Return exact pixel corner coordinates in WGS84 for a given row/col."""
+    tl = src.xy(row, col, offset='ul')
+    tr = src.xy(row, col, offset='ur')
+    br = src.xy(row, col, offset='lr')
+    bl = src.xy(row, col, offset='ll')
+    corners = [tl, tr, br, bl, tl]
+    if src.crs and not src.crs.is_geographic:
+        to_ll = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+        corners = [to_ll.transform(x, y) for x, y in corners]
+    return corners
+
+
+def generate_kml_for_pixel(tile, row, col, out_path=None):
+    """Generate a KML outlining exactly one pixel (no 3x3 patch)."""
+    tif = os.path.join(RAW_DATA_DIR, tile)
+    if not os.path.exists(tif):
+        print(f"Missing tile for candidate KML => {tile}")
+        return
+    with rasterio.open(tif) as src:
+        corners = _get_pixel_corners(src, int(row), int(col))
+    kml = Element('kml'); kml.set("xmlns","http://www.opengis.net/kml/2.2")
+    doc = SubElement(kml, 'Document')
+    style = SubElement(doc, 'Style', id="pixelStyle")
+    ln = SubElement(style, 'LineStyle'); SubElement(ln,'color').text="ff0000ff"; SubElement(ln,'width').text="2"
+    ps = SubElement(style, 'PolyStyle'); SubElement(ps,'fill').text="0"; SubElement(ps,'outline').text="1"
+    pm = SubElement(doc, 'Placemark'); SubElement(pm,'styleUrl').text="#pixelStyle"; SubElement(pm,'name').text="Candidate Pixel"
+    poly = SubElement(pm,'Polygon'); outer = SubElement(poly,'outerBoundaryIs'); linear = SubElement(outer,'LinearRing')
+    SubElement(linear,'coordinates').text = " ".join(f"{lon},{lat},0" for lon, lat in corners)
+    xml = minidom.parseString(tostring(kml,encoding="utf-8")).toprettyxml(indent="  ", encoding="utf-8")
+    dest = out_path or CANDIDATE_KML
+    with open(dest, "wb") as f:
+        f.write(xml)
+    print(f"KML file generated at {dest}")
+
+
 def generate_grid_kml(tile_path, patch_width, patch_height, out_path):
     """Create a grid overlay KML for the given tile.
 
@@ -353,6 +390,7 @@ def manual_labeling(num_labels):
     labels = load_labels()
     added = 0
     w, h = get_patch_dimensions()
+    to_remove = []
     for _ in range(num_labels):
         try:
             lat = float(input("Enter latitude: "))
@@ -370,6 +408,14 @@ def manual_labeling(num_labels):
         print("Label? (1=Agri,2=Non,3=Skip)")
         ui = input("=> ").strip()
         if ui == "3":
+            # record skip if possible
+            try:
+                snapped = snap_to_pixel_center(tile, lat, lon)
+                if snapped:
+                    la_s, lo_s, r_s, c_s = snapped
+                    record_skipped_pixel(tile, r_s, c_s, la_s, lo_s, source="manual")
+            except Exception:
+                pass
             continue
         lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if not lab:
@@ -381,25 +427,38 @@ def manual_labeling(num_labels):
             csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
         print(f"Added manual label at ({lat},{lon}).")
         labels.append({"lat":lat,"lon":lon,"tile":tile,"label":lab,"notes":note})
-        export_labels_kml()
         try:
-            # remove from global lists and temp labels if present
+            # collect for batch removal from persistent lists
             from al_shared import snap_to_pixel_center as _snap
             snapped = _snap(tile, lat, lon)
             if snapped:
                 la_s, lo_s, r_s, c_s = snapped
-                _remove_pixel_from_lists(tile, r_s, c_s, la_s, lo_s)
+                to_remove.append((tile, r_s, c_s, la_s, lo_s))
         except Exception:
             pass
-        # convert to tile CRS for patch display
-        with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
-            x, y = lon, lat
-            if src.crs and not src.crs.is_geographic:
-                transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
-                x, y = transformer.transform(lon, lat)
-        generate_kml_for_patch(y, x, w, h)
+        # Show exact candidate pixel KML
+        try:
+            from al_shared import snap_to_pixel_center as _snap
+            snapped = _snap(tile, lat, lon)
+            if snapped:
+                la_s, lo_s, r_s, c_s = snapped
+                generate_kml_for_pixel(tile, r_s, c_s)
+            else:
+                # Fallback: keep old patch behavior centered on point
+                with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
+                    x, y = lon, lat
+                    if src.crs and not src.crs.is_geographic:
+                        transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+                        x, y = transformer.transform(lon, lat)
+                generate_kml_for_patch(y, x, w, h)
+        except Exception:
+            pass
         added += 1
-    export_labels_kml()
+    if added:
+        if to_remove:
+            _batch_remove_pixels_from_lists(to_remove)
+        _snap_labels_only()
+        export_labels_kml()
     return added
 
 
@@ -409,6 +468,9 @@ def global_sampling_labeling(num_patches):
     lons = [p[0] for p in roi]; lats = [p[1] for p in roi]
     w, h = get_patch_dimensions()
     added = 0
+    to_remove = []
+    session_seen = set()  # avoid duplicate pixels within this batch
+    skipped = load_skipped_set()
     for _ in range(num_patches):
         lat = random.uniform(min(lats), max(lats))
         lon = random.uniform(min(lons), max(lons))
@@ -416,16 +478,42 @@ def global_sampling_labeling(num_patches):
         if not tile:
             print("No tile for coordinate; skipping.")
             continue
-        # convert to tile CRS for visualization
-        with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
-            x, y = lon, lat
-            if src.crs and not src.crs.is_geographic:
-                transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
-                x, y = transformer.transform(lon, lat)
-        generate_kml_for_patch(y, x, w, h)
+        # Show exact candidate pixel KML prior to labeling
+        try:
+            from al_shared import snap_to_pixel_center as _snap
+            r_s = c_s = la_s = lo_s = None
+            snapped = _snap(tile, lat, lon)
+            if snapped:
+                la_s, lo_s, r_s, c_s = snapped
+                key = f"{tile}:{r_s}:{c_s}"
+                if key in session_seen:
+                    continue
+                if key in skipped:
+                    continue
+                session_seen.add(key)
+                generate_kml_for_pixel(tile, r_s, c_s)
+            else:
+                with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
+                    x, y = lon, lat
+                    if src.crs and not src.crs.is_geographic:
+                        transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
+                        x, y = transformer.transform(lon, lat)
+                generate_kml_for_patch(y, x, w, h)
+        except Exception:
+            pass
         print(f"Open KML {CANDIDATE_KML} to view patch.")
         ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
         if ui=="3":
+            try:
+                if r_s is not None and c_s is not None and la_s is not None and lo_s is not None:
+                    record_skipped_pixel(tile, r_s, c_s, la_s, lo_s, source="global")
+                else:
+                    snapped2 = snap_to_pixel_center(tile, lat, lon)
+                    if snapped2:
+                        la_s2, lo_s2, rs2, cs2 = snapped2
+                        record_skipped_pixel(tile, rs2, cs2, la_s2, lo_s2, source="global")
+            except Exception:
+                pass
             continue
         lab = "Agricultural" if ui=="1" else "Non-Agricultural" if ui=="2" else None
         if not lab:
@@ -436,18 +524,20 @@ def global_sampling_labeling(num_patches):
         with open(LABELS_FILE, "a", newline="") as f:
             csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
         print(f"Added global label at ({lat},{lon}).")
-        export_labels_kml()
         try:
-            # remove from global lists and temp labels if present
             from al_shared import snap_to_pixel_center as _snap
             snapped = _snap(tile, lat, lon)
             if snapped:
                 la_s, lo_s, r_s, c_s = snapped
-                _remove_pixel_from_lists(tile, r_s, c_s, la_s, lo_s)
+                to_remove.append((tile, r_s, c_s, la_s, lo_s))
         except Exception:
             pass
         added += 1
-    export_labels_kml()
+    if added:
+        if to_remove:
+            _batch_remove_pixels_from_lists(to_remove)
+        _snap_labels_only()
+        export_labels_kml()
     return added
 
 
@@ -557,6 +647,126 @@ def _remove_pixel_from_lists(tile: str, row: int, col: int, lat: float | None = 
                 w.writeheader(); w.writerows(keep)
 
 
+def _snap_labels_only():
+    """Snap labels.csv rows to exact pixel centers and fill row/col with progress.
+
+    - Uses al_shared.snap_to_pixel_center(tile, lat, lon)
+    - Updates lat/lon to 7 decimals and writes row/col columns.
+    - Preserves other fields.
+    """
+    import csv as _csv
+    from progress_utils import new_progress as _npb
+    if not os.path.exists(LABELS_FILE):
+        return
+    with open(LABELS_FILE, newline='') as f:
+        rows = list(_csv.DictReader(f))
+    if not rows:
+        return
+    out = []
+    from al_shared import snap_to_pixel_center as _snap
+    with _npb() as _prog:
+        task = _prog.add_task("Snap labels to pixel centers", total=len(rows))
+        for r in rows:
+            tile = r.get('tile')
+            try:
+                la = float(r.get('lat')); lo = float(r.get('lon'))
+            except Exception:
+                out.append(r); _prog.update(task, advance=1); continue
+            snapped = None
+            try:
+                snapped = _snap(tile, la, lo) if tile else None
+            except Exception:
+                snapped = None
+            if snapped:
+                sla, slo, rowi, coli = snapped
+                r['lat'] = f"{sla:.7f}"; r['lon'] = f"{slo:.7f}"
+                r['row'] = int(rowi); r['col'] = int(coli)
+            out.append(r)
+            _prog.update(task, advance=1)
+    # Write back; include row/col in header
+    fields = list(out[0].keys())
+    if 'row' not in fields:
+        fields.append('row')
+    if 'col' not in fields:
+        fields.append('col')
+    with open(LABELS_FILE, 'w', newline='') as f:
+        w = _csv.DictWriter(f, fieldnames=fields)
+        w.writeheader(); w.writerows(out)
+
+
+def _batch_remove_pixels_from_lists(pixels):
+    """Batch remove many pixels from persistent lists in one pass per file.
+
+    pixels: list of (tile, row, col, lat, lon)
+    """
+    import csv as _csv
+    from progress_utils import new_progress as _npb
+    # Build key sets
+    keys_rowcol = set()
+    keys_latlon = set()
+    for t, r, c, la, lo in pixels:
+        try:
+            keys_rowcol.add(f"{t}:{int(r)}:{int(c)}")
+        except Exception:
+            pass
+        try:
+            keys_latlon.add(f"{t}:{float(la):.7f}:{float(lo):.7f}")
+        except Exception:
+            pass
+
+    def _filter_file(path, title):
+        if not os.path.exists(path):
+            return 0, 0
+        try:
+            size = os.path.getsize(path)
+        except Exception:
+            size = None
+        kept = []
+        removed = 0
+        with open(path, newline='') as f, _npb() as _prog:
+            task = _prog.add_task(f"{title}: {os.path.basename(path)}", total=size or None)
+            rd = _csv.DictReader(f)
+            last_tell = 0
+            for r in rd:
+                t = r.get('tile')
+                rc_key = None
+                ll_key = None
+                try:
+                    rc_key = f"{t}:{int(r.get('row'))}:{int(r.get('col'))}"
+                except Exception:
+                    rc_key = None
+                try:
+                    ll_key = f"{t}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}"
+                except Exception:
+                    ll_key = None
+                if (rc_key and rc_key in keys_rowcol) or (ll_key and ll_key in keys_latlon):
+                    removed += 1
+                else:
+                    kept.append(r)
+                try:
+                    cur = f.tell()
+                    if size and cur > last_tell:
+                        _prog.update(task, completed=min(cur, size))
+                        last_tell = cur
+                except Exception:
+                    pass
+            if size:
+                _prog.update(task, completed=size)
+        if removed > 0:
+            with open(path, 'w', newline='') as f:
+                w = _csv.DictWriter(f, fieldnames=list(kept[0].keys()) if kept else ['tile','row','col','lat','lon','prob','ndvi'])
+                w.writeheader(); w.writerows(kept)
+        return removed, len(kept)
+
+    # Persistent lists
+    for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
+        _filter_file(path, title="Batch remove from list")
+    # Temp labels: remove by lat/lon if available
+    from config import TEMP_LABELS_FILE as _TL
+    if os.path.exists(_TL) and keys_latlon:
+        _filter_file(_TL, title="Batch remove from temp labels")
+
+
 def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = "Assisted") -> int:
     """Stream candidates from a persistent list CSV and prompt labeling.
 
@@ -571,28 +781,46 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
     if not rows:
         print(f"{list_name} list empty.")
         return 0
+    # Build a unique selection up to max_count
+    uniq = []
+    seen = set()
+    skipped = load_skipped_set()
+    for r in rows:
+        t = r.get('tile'); rr = r.get('row'); cc = r.get('col')
+        try:
+            key = f"{t}:{int(rr)}:{int(cc)}"
+        except Exception:
+            continue
+        if key in seen or (skipped and key in skipped):
+            continue
+        seen.add(key)
+        uniq.append(r)
+        if len(uniq) >= max_count:
+            break
+
     added = 0
     w, h = get_patch_dimensions()
-    for r in rows[:max_count]:
+    to_remove = []
+    for r in uniq:
         tile = r.get('tile')
         try:
             la = float(r.get('lat')); lo = float(r.get('lon'))
             row = int(r.get('row')); col = int(r.get('col'))
         except Exception:
             continue
-        # convert to tile CRS for visualization
+        # Show exact candidate pixel KML for list-based review
         try:
-            with rasterio.open(os.path.join(RAW_DATA_DIR, tile)) as src:
-                x, y = lo, la
-                if src.crs and not src.crs.is_geographic:
-                    transformer = Transformer.from_crs("EPSG:4326", src.crs, always_xy=True)
-                    x, y = transformer.transform(lo, la)
+            generate_kml_for_pixel(tile, row, col)
         except Exception:
             continue
-        generate_kml_for_patch(y, x, w, h)
         print(f"Open KML {CANDIDATE_KML} to view candidate from {list_name}.")
         ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
         if ui == "3":
+            # record skip directly using provided row/col and lat/lon from the list
+            try:
+                record_skipped_pixel(tile, row, col, la, lo, source=list_name)
+            except Exception:
+                pass
             continue
         lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if not lab:
@@ -602,8 +830,12 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
         eid = f"{list_name}_{int(random.random()*1e6)}"
         with open(LABELS_FILE, 'a', newline='') as f:
             csv.writer(f).writerow([eid, la, lo, tile, lab, note])
-        export_labels_kml()
-        _remove_pixel_from_lists(tile, row, col, la, lo)
+        to_remove.append((tile, row, col, la, lo))
         print(f"Labeled from {list_name}: {tile} r={row},c={col}")
         added += 1
+    if added:
+        if to_remove:
+            _batch_remove_pixels_from_lists(to_remove)
+        _snap_labels_only()
+        export_labels_kml()
     return added

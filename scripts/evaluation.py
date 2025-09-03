@@ -20,11 +20,11 @@ from sklearn.metrics import (
 )
 os.environ.setdefault("MPLBACKEND", "Agg")
 # Threading caps to avoid OpenBLAS/OpenMP warnings and oversubscription
-_N_THREADS = str(min(8, max(1, cpu_count()), 24))
-os.environ["OMP_NUM_THREADS"] = _N_THREADS
-os.environ["MKL_NUM_THREADS"] = _N_THREADS
-os.environ.setdefault("OPENBLAS_NUM_THREADS", _N_THREADS)
-os.environ.setdefault("NUMEXPR_NUM_THREADS", _N_THREADS)
+_DEFAULT_THREADS = str(max(1, min(4, (cpu_count() or 1))))
+os.environ.setdefault("OMP_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("MKL_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("NUMEXPR_NUM_THREADS", _DEFAULT_THREADS)
 import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt

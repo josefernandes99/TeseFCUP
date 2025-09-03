@@ -11,7 +11,7 @@ import numpy as np
 import rasterio
 from pyproj import Transformer
 
-from config import RAW_DATA_DIR, FEATURE_CACHE_DIR, FEATURE_CACHE_ENABLED
+from config import RAW_DATA_DIR, FEATURE_CACHE_DIR, FEATURE_CACHE_ENABLED, SKIPPED_PIXELS_FILE
 from features import add_derived_features, current_feature_names
 
 # tile cache (LRU): tile name -> (features array, transform, CRS)
@@ -37,6 +37,8 @@ __all__ = [
     "get_tile_features",
     "pixel_key",
     "snap_to_pixel_center",
+    "load_skipped_set",
+    "record_skipped_pixel",
 ]
 
 
@@ -150,3 +152,37 @@ def snap_to_pixel_center(tile: str, lat: float, lon: float):
             to_ll = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
             cx, cy = to_ll.transform(cx, cy)
         return float(cy), float(cx), int(r), int(c)
+
+
+def load_skipped_set():
+    """Load skipped pixels as a set of keys tile:row:col."""
+    s = set()
+    try:
+        import csv as _csv
+        if os.path.exists(SKIPPED_PIXELS_FILE):
+            with open(SKIPPED_PIXELS_FILE, newline='') as f:
+                for r in _csv.DictReader(f):
+                    t = r.get('tile');
+                    try:
+                        key = f"{t}:{int(r.get('row'))}:{int(r.get('col'))}"
+                        s.add(key)
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+    return s
+
+
+def record_skipped_pixel(tile: str, row: int, col: int, lat: float, lon: float, source: str = ""):
+    """Append a skipped pixel record to labels/phase1/skipped.csv.
+
+    Columns: tile,row,col,lat,lon,source
+    """
+    import csv as _csv
+    os.makedirs(os.path.dirname(SKIPPED_PIXELS_FILE), exist_ok=True)
+    write_header = not os.path.exists(SKIPPED_PIXELS_FILE)
+    with open(SKIPPED_PIXELS_FILE, 'a', newline='') as f:
+        w = _csv.writer(f)
+        if write_header:
+            w.writerow(["tile","row","col","lat","lon","source"])
+        w.writerow([tile, int(row), int(col), f"{float(lat):.7f}", f"{float(lon):.7f}", source or ""]) 

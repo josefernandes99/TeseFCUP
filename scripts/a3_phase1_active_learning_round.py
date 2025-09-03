@@ -8,12 +8,13 @@ from multiprocessing import cpu_count
 # 1) Speed‐ups: thread‐tune BLAS/OpenMP to use all CPU cores
 # -----------------------------------------------------------------------------
 # Threading caps to avoid OpenBLAS/OpenMP warnings and oversubscription
-# Tune to your 16C/32T machine: allow up to 16 threads for math libs
-_N_THREADS = str(min(16, max(1, cpu_count())))
-os.environ["OMP_NUM_THREADS"] = _N_THREADS
-os.environ["MKL_NUM_THREADS"] = _N_THREADS
-os.environ.setdefault("OPENBLAS_NUM_THREADS", _N_THREADS)
-os.environ.setdefault("NUMEXPR_NUM_THREADS", _N_THREADS)
+# Choose conservative defaults and let user/env override explicitly.
+_DEFAULT_THREADS = str(max(1, min(4, (cpu_count() or 1))))
+# Do not override if already set in environment
+os.environ.setdefault("OMP_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("MKL_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("NUMEXPR_NUM_THREADS", _DEFAULT_THREADS)
 
 import csv
 import glob
@@ -60,7 +61,7 @@ from scipy.spatial import cKDTree
 
 # Note: grid KML generation is performed once at pipeline start.
 from features import add_derived_features
-from al_shared import extract_features_from_label, get_tile_features
+from al_shared import extract_features_from_label, get_tile_features, load_skipped_set, record_skipped_pixel
 
 
 
@@ -161,7 +162,8 @@ def train_resnet(net, x_t, y_t):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     net.to(device).train()
     ds     = torch.utils.data.TensorDataset(x_t, y_t)
-    loader = torch.utils.data.DataLoader(ds, batch_size=BATCH_SIZE, shuffle=True)
+    # Use a single-process DataLoader to avoid worker spawn issues on WSL/Windows
+    loader = torch.utils.data.DataLoader(ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     opt    = torch.optim.Adam(net.parameters(), lr=RESNET_LR)
     crit   = nn.CrossEntropyLoss()
     for ep in range(RESNET_EPOCHS):
@@ -177,6 +179,22 @@ def train_resnet(net, x_t, y_t):
         if (ep+1) % 2 == 0:
             print(f"ResNet epoch {ep+1}/{RESNET_EPOCHS}, loss={total_loss/len(loader):.4f}")
     net.eval()
+
+
+# Cap PyTorch internal thread pools to avoid oversubscription
+try:
+    _torch_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
+    if _torch_threads > 0:
+        try:
+            torch.set_num_threads(_torch_threads)
+        except Exception:
+            pass
+        try:
+            torch.set_num_interop_threads(1)
+        except Exception:
+            pass
+except Exception:
+    pass
 
 
 def train_model(choice, X, y):
@@ -219,7 +237,8 @@ def train_model(choice, X, y):
         except Exception as e:
             raise RuntimeError("XGBoost not installed. Please install xgboost to use this model.") from e
         params = cfg.XGB_PARAMS.copy()
-        xgb_clf = xgb.XGBClassifier(
+        # Try GPU first (gpu_hist + gpu_predictor). If it fails, fall back to CPU.
+        base_kwargs = dict(
             n_estimators=int(params.get("n_estimators", 400)),
             max_depth=int(params.get("max_depth", 6)),
             learning_rate=float(params.get("learning_rate", 0.05)),
@@ -228,10 +247,30 @@ def train_model(choice, X, y):
             reg_lambda=float(params.get("reg_lambda", 1.0)),
             objective="binary:logistic",
             n_jobs=-1,
-            tree_method="hist",
             random_state=None if cfg.SPLIT_SEED_MODE == "random" else int(cfg.SPLIT_RANDOM_SEED),
         )
-        xgb_clf.fit(Xs, y)
+        tried_gpu = False
+        try:
+            xgb_clf = xgb.XGBClassifier(
+                tree_method="gpu_hist",
+                predictor="gpu_predictor",
+                **base_kwargs,
+            )
+            tried_gpu = True
+            xgb_clf.fit(Xs, y)
+        except Exception as _gpu_err:
+            # Fallback: CPU histogram
+            try:
+                xgb_clf = xgb.XGBClassifier(
+                    tree_method="hist",
+                    predictor="auto",
+                    **base_kwargs,
+                )
+                xgb_clf.fit(Xs, y)
+                if tried_gpu:
+                    print("XGBoost GPU unavailable; fell back to CPU (hist).")
+            except Exception as _cpu_err:
+                raise RuntimeError(f"XGBoost training failed (GPU then CPU). GPU err={_gpu_err}; CPU err={_cpu_err}")
         w = SklearnWrapper(xgb_clf, feat_means, feat_std)
         w.kind = 'xgboost'
         return w
@@ -244,12 +283,17 @@ def train_model(choice, X, y):
 # 4) Fast batch inference + per‐pixel geometry
 # -----------------------------------------------------------------------------
 def get_pixel_corners(src, r, c):
-    """Return corner coordinates for a pixel as (lon, lat) pairs in WGS84."""
-    tl = src.xy(r,   c)
-    tr = src.xy(r,   c+1)
-    br = src.xy(r+1, c+1)
-    bl = src.xy(r+1, c)
+    """Return corner coordinates for a single pixel as (lon, lat) pairs in WGS84.
+
+    Uses pixel-corner offsets to avoid center-based misalignment.
+    """
+    # Compute pixel corners in dataset CRS
+    tl = src.xy(r, c, offset='ul')
+    tr = src.xy(r, c, offset='ur')
+    br = src.xy(r, c, offset='lr')
+    bl = src.xy(r, c, offset='ll')
     corners = [tl, tr, br, bl, tl]
+    # Reproject to WGS84 if necessary
     if src.crs and not src.crs.is_geographic:
         transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
         corners = [transformer.transform(x, y) for x, y in corners]
@@ -509,7 +553,15 @@ def save_agricultural_polygons_kml(round_folder, round_num, pred_csv=None, preds
                 from scipy.ndimage import binary_closing, binary_fill_holes
                 agri_mask = binary_fill_holes(binary_closing(agri_mask))
                 if cfg.SIEVE_MIN_SIZE > 0:
-                    agri_mask = sieve(agri_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
+                    import warnings
+                    try:
+                        from rasterio.errors import NotGeoreferencedWarning
+                    except Exception:
+                        class NotGeoreferencedWarning(Warning):
+                            pass
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                        agri_mask = sieve(agri_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
                 transformer = None
                 if src.crs and not src.crs.is_geographic:
                     transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
@@ -1210,7 +1262,13 @@ def _update_persistent_lists(preds, train_rows, X_train, y_train, round_num, rou
             try:
                 from scipy.spatial import cKDTree as _KD
                 kd2 = _KD((X_train - feat_means2) / (feat_std2 + 1e-6))
-                dpos, _ = kd2.query(PFs, k=1, workers=int(getattr(cfg, 'REFRESH_KD_WORKERS', 1)))
+                try:
+                    dpos, _ = kd2.query(PFs, k=1, workers=int(getattr(cfg, 'REFRESH_KD_WORKERS', 1)))
+                except Exception:
+                    try:
+                        dpos, _ = kd2.query(PFs, k=1, workers=1)
+                    except Exception:
+                        dpos, _ = kd2.query(PFs, k=1)
                 dpos = dpos.astype(np.float32, copy=False)
             except Exception:
                 dpos = np.sqrt(((PFs[:, None, :] - ((X_train - feat_means2) / (feat_std2 + 1e-6))[None, :, :]) ** 2).sum(axis=2)).min(axis=1)
@@ -1587,14 +1645,37 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
               "- ProbableAgri uses Probability only.")
     # Query helper using cKDTree (or zeros when no training features)
     def _query_dists(Q):
+        """Robust 1-NN distance query with safe fallbacks.
+
+        Tries parallel workers from config; on failure, falls back to
+        workers=1, then to default (no workers arg), and finally to a
+        brute-force NumPy distance if KDTree query still errors.
+        """
         if kd is None:
             try:
                 n = int(Q.shape[0])
             except Exception:
                 n = len(Q) if hasattr(Q, '__len__') else 0
             return np.zeros((n,), dtype=np.float32)
-        d, _ = kd.query(Q, k=1, workers=int(getattr(cfg, 'REFRESH_KD_WORKERS', 1)))
-        return d.astype(np.float32, copy=False)
+        try:
+            d, _ = kd.query(Q, k=1, workers=int(getattr(cfg, 'REFRESH_KD_WORKERS', 1)))
+            return d.astype(np.float32, copy=False)
+        except Exception:
+            try:
+                d, _ = kd.query(Q, k=1, workers=1)
+                return d.astype(np.float32, copy=False)
+            except Exception:
+                try:
+                    d, _ = kd.query(Q, k=1)
+                    return d.astype(np.float32, copy=False)
+                except Exception:
+                    try:
+                        Q = np.asarray(Q, dtype=np.float32)
+                        Xs_np = np.asarray(Xs, dtype=np.float32)
+                        return np.sqrt(((Q[:, None, :] - Xs_np[None, :, :]) ** 2).sum(axis=2)).min(axis=1)
+                    except Exception:
+                        # Last-resort: zeros (neutral representativeness)
+                        return np.zeros((getattr(Q, 'shape', [0])[0] if hasattr(Q, 'shape') else len(Q)), dtype=np.float32)
 
     tmp_root = os.path.join(round_dir, '_global_refresh')
     shards_dir = os.path.join(tmp_root, 'shards')
@@ -2164,6 +2245,7 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
     # Stream to build a top-M uncertainty pool instead of loading everything
     print("Building uncertainty/negative pools for candidate selection...")
     import heapq
+    skipped = load_skipped_set()
     pool_size = cfg.NUM_CANDIDATES_PER_ROUND * 10
     target_neg = int(cfg.NUM_CANDIDATES_PER_ROUND * max(0.0, float(getattr(cfg, 'CANDIDATE_NEGATIVE_QUOTA', 0))))
     pool_neg = max(target_neg * 10, target_neg) if target_neg > 0 else 0
@@ -2209,7 +2291,10 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
                 p = 0.5
             # Parse common fields
             try:
-                item = [row[0], int(row[1]), int(row[2]),
+                t0 = row[0]; r0 = int(row[1]); c0 = int(row[2])
+                if skipped and f"{t0}:{r0}:{c0}" in skipped:
+                    continue
+                item = [t0, r0, c0,
                         float(row[3]), float(row[4]), p,
                         float(row[6]) if len(row) > 6 and row[6] != '' else 0.0]
             except Exception:
@@ -2266,6 +2351,10 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
 def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows=None, X_train=None, y_train=None):
     """Prompt the user to label candidates from in-memory predictions."""
     from collections import defaultdict
+    # Filter out globally skipped pixels
+    skipped = load_skipped_set()
+    if skipped:
+        preds = [p for p in preds if f"{p[0]}:{int(p[1])}:{int(p[2])}" not in skipped]
 
     # derive dynamic negative-like ranges
     def _neg_prob_range():
@@ -2358,32 +2447,22 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
         if len(sel) >= main_target:
             break
     cands = neg_picks + sel
+    # If initial selection shorter than target, backfill pool by uncertainty
     if len(cands) < cfg.NUM_CANDIDATES_PER_ROUND:
-        unc = [p for p in preds if cfg.CANDIDATE_PROB_LOWER <= p[5] <= cfg.MIN_AGRI_PROB]
-        if len(unc) < cfg.NUM_CANDIDATES_PER_ROUND:
-            preds.sort(key=lambda r: abs(r[5] - 0.5))
-            cands = preds[:cfg.NUM_CANDIDATES_PER_ROUND]
-        else:
-            by_tile = defaultdict(list)
-            for entry in unc:
-                by_tile[entry[0]].append(entry)
-            tiles = list(by_tile.keys())
-            random.shuffle(tiles)
-            per_tile = cfg.NUM_CANDIDATES_PER_ROUND // len(tiles)
-            remainder = cfg.NUM_CANDIDATES_PER_ROUND % len(tiles)
-            cands = []
-            leftovers = []
-            for i, tile in enumerate(tiles):
-                random.shuffle(by_tile[tile])
-                target = per_tile + (1 if i < remainder else 0)
-                selected = by_tile[tile][:target]
-                cands.extend(selected)
-                leftovers.extend(by_tile[tile][len(selected):])
-            random.shuffle(leftovers)
-            while len(cands) < cfg.NUM_CANDIDATES_PER_ROUND and leftovers:
-                cands.append(leftovers.pop())
+        unc_all = [p for p in preds if p[5] >= cfg.CANDIDATE_PROB_LOWER]
+        unc_all.sort(key=lambda r: abs(r[5] - 0.5))  # smallest margin (most uncertain) first
+        # append until we have at least target candidates
+        seen = set((e[0], e[1], e[2]) for e in cands)
+        for e in unc_all:
+            k = (e[0], e[1], e[2])
+            if k in seen:
+                continue
+            cands.append(e)
+            seen.add(k)
+            if len(cands) >= cfg.NUM_CANDIDATES_PER_ROUND * 5:
+                break
 
-    print(f"{len(cands)} candidate patches selected")
+    print(f"{len(cands)} candidate patches preselected")
 
     tmp = os.path.join(round_dir, "temporary", "temp_labels.csv")
     os.makedirs(os.path.dirname(tmp), exist_ok=True)
@@ -2436,7 +2515,38 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
         crank = {}
 
     tile_pick_counter = {}
-    for idx, (t, r, c, la, lo, p, ndvi) in enumerate(cands):
+    # Build an extended stream: preselected list followed by extras by uncertainty
+    asked = set()
+    def _extra_stream():
+        pool = [p for p in preds if p[5] >= cfg.CANDIDATE_PROB_LOWER]
+        # sort by highest entropy first
+        pool.sort(key=lambda e: (-e[5]*np.log(e[5]+1e-9) - (1-e[5])*np.log(1-e[5]+1e-9)))
+        for e in pool:
+            k = (e[0], e[1], e[2])
+            if k in asked:
+                continue
+            yield e
+
+    labeled_count = 0
+    target = int(cfg.NUM_CANDIDATES_PER_ROUND)
+    idx = 0
+    extra_iter = None
+    while labeled_count < target:
+        if idx < len(cands):
+            t, r, c, la, lo, p, ndvi = cands[idx]
+            idx += 1
+        else:
+            if extra_iter is None:
+                extra_iter = _extra_stream()
+            try:
+                t, r, c, la, lo, p, ndvi = next(extra_iter)
+            except StopIteration:
+                print("Exhausted candidate pool before reaching target labels.")
+                break
+        k = (t, r, c)
+        if k in asked:
+            continue
+        asked.add(k)
         generate_candidate_kml(t, r, c, kmlp)
         ent = -p*np.log(p + 1e-9) - (1-p)*np.log(1-p + 1e-9)
         dist_th = abs(p - cfg.MIN_AGRI_PROB)
@@ -2469,19 +2579,29 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
         ui = input("Label? (1=Agri,2=NonAgri,3=Skip): ").strip()
         if ui == "3":
             print("Skipped.")
+            try:
+                record_skipped_pixel(t, r, c, la, lo, source="al")
+            except Exception:
+                pass
             continue
         lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
         if lab:
             note = prompt_note()
             eid = f"AL_{round_num}_{int(random.random()*1e6)}"
+            cur_i = idx - 1
+            in_initial = (cur_i < len(cands)) and (cur_i >= 0)
+            cid_val = cids[cur_i] if in_initial and cids else ""
+            csize_val = csize.get(cid_val, "") if in_initial else ""
+            crank_val = crank.get(cur_i, "") if in_initial else ""
             with open(tmp, "a", newline="") as f2:
                 csv.writer(f2).writerow([
                     eid, la, lo, t, lab, note,
                     "entropy_dbscan_tile_balanced",
-                    f"{p:.6f}", f"{ent:.6f}", f"{abs(p-0.5):.6f}", cids[idx], csize.get(cids[idx], ""),
-                    crank.get(idx, ""), tile_pick_counter[t], kcount, f"{dist_th:.6f}", f"{ndvi:.6f}", nld if nld != "" else "", nlc if nlc != "" else "", reason
+                    f"{p:.6f}", f"{ent:.6f}", f"{abs(p-0.5):.6f}", cid_val, csize_val,
+                    crank_val, tile_pick_counter[t], kcount, f"{dist_th:.6f}", f"{ndvi:.6f}", nld if nld != "" else "", nlc if nlc != "" else "", reason
                 ])
             print("Label saved.")
+            labeled_count += 1
     return tmp
 
 

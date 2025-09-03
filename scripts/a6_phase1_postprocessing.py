@@ -10,11 +10,12 @@ from joblib import load, Parallel, delayed
 from progress_utils import new_progress
 
 # Threading caps to avoid OpenBLAS/OpenMP warnings and oversubscription
-_N_THREADS = str(min(8, max(1, cpu_count()), 24))
-os.environ["OMP_NUM_THREADS"] = _N_THREADS
-os.environ["MKL_NUM_THREADS"] = _N_THREADS
-os.environ.setdefault("OPENBLAS_NUM_THREADS", _N_THREADS)
-os.environ.setdefault("NUMEXPR_NUM_THREADS", _N_THREADS)
+# Conservative threading caps; allow env to override
+_DEFAULT_THREADS = str(max(1, min(4, (cpu_count() or 1))))
+os.environ.setdefault("OMP_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("MKL_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("OPENBLAS_NUM_THREADS", _DEFAULT_THREADS)
+os.environ.setdefault("NUMEXPR_NUM_THREADS", _DEFAULT_THREADS)
 from memory_watcher import free_unused_memory
 from config import (
     RAW_DATA_DIR,
@@ -207,7 +208,8 @@ def postprocessing():
                 res = process_tile(tp, model, out_dir=None, make_overlay=False, quiet=True)
                 progress.update(task, advance=1)
                 return res
-            results = Parallel(n_jobs=-1, prefer="threads")(delayed(wrapped)(tp) for tp in tile_files)
+            # Limit parallelism to avoid oversubscription on WSL/Windows
+            results = Parallel(n_jobs=getattr(cfg, 'INFER_TILE_THREADS', 2), prefer="threads")(delayed(wrapped)(tp) for tp in tile_files)
             combo_tag = "default"
             results_map = {combo_tag: results}
         else:
@@ -224,7 +226,7 @@ def postprocessing():
                     res = process_tile(tp, model, th=th, sieve_size=sz, morph_open=False, morph_k=3, suffix=tag, out_dir=None, make_overlay=False, quiet=True)
                     progress.update(task, advance=1)
                     return res
-                res = Parallel(n_jobs=-1, prefer="threads")(delayed(wrapped)(tp) for tp in tile_files)
+                res = Parallel(n_jobs=getattr(cfg, 'INFER_TILE_THREADS', 2), prefer="threads")(delayed(wrapped)(tp) for tp in tile_files)
                 results_map[tag] = res
 
     # Write per-combo summaries into rounds/final_round/<tag>/ with progress
