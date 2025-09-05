@@ -877,15 +877,17 @@ def active_learning_round(
     except Exception as e:
         print(f"Permutation importance skipped: {e}")
 
-    # Update persistent informative lists via the standalone script. This keeps
-    # the round runner robust even if refresh encounters native-lib issues.
+    # Update persistent informative lists via the standalone script (optional).
     pred_csv_arg = os.path.join(rnd_dir, "predictions.csv")
-    try:
-        script = os.path.join(os.path.dirname(__file__), "refresh_lists.py")
-        print("Refreshing persistent lists via refresh_lists.py ...")
-        subprocess.run([sys.executable, script, pred_csv_arg], check=True)
-    except Exception as e:
-        print(f"Persistent list update error: {e}")
+    if getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+        try:
+            script = os.path.join(os.path.dirname(__file__), "refresh_lists.py")
+            print("Refreshing persistent lists via refresh_lists.py ...")
+            subprocess.run([sys.executable, script, pred_csv_arg], check=True)
+        except Exception as e:
+            print(f"Persistent list update error: {e}")
+    else:
+        print("Persistent lists disabled in config; skipping refresh of Highscore/ProbableAgri.")
 
     if return_metrics or not request_labels:
         print(f"Round {round_num} complete (no candidate labeling).")

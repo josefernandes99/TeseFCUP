@@ -4,6 +4,7 @@ import os
 import sys
 
 from config import HIGHSCORE_FILE, PROBABLE_AGRI_FILE
+import config as cfg
 
 
 def preview_csv(path, top=20):
@@ -18,6 +19,9 @@ def preview_csv(path, top=20):
 
 
 def main():
+    if not getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+        print("Persistent lists disabled in config; report skipped.")
+        return
     top = 20
     if len(sys.argv) > 1:
         try:
@@ -30,4 +34,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

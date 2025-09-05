@@ -326,14 +326,15 @@ def _validate_and_dedup_all():
                 _prog.update(task, completed=size)
         return out
 
-    for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
-        rows = _fast_dedup(path)
-        if rows:
-            first = next(iter(rows), None)
-            fields = list(first.keys()) if first else []
-            with open(path, 'w', newline='') as f:
-                w = _csv.DictWriter(f, fieldnames=fields)
-                w.writeheader(); w.writerows(rows)
+    if getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+        for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
+            rows = _fast_dedup(path)
+            if rows:
+                first = next(iter(rows), None)
+                fields = list(first.keys()) if first else []
+                with open(path, 'w', newline='') as f:
+                    w = _csv.DictWriter(f, fieldnames=fields)
+                    w.writeheader(); w.writerows(rows)
 
 def _verify_feature_stack():
     """Verify that exported tiles have all configured bands/indices per season and are usable.

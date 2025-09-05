@@ -39,6 +39,10 @@ def _dedup_rows(rows):
 
 
 def main():
+    # Honor config toggle: when disabled, skip any updates silently.
+    if not getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+        print("Persistent lists disabled in config; skipping refresh.")
+        return
     pred_csv = sys.argv[1] if len(sys.argv) > 1 else None
     if pred_csv is None:
         pred_csv = _find_latest_predictions_csv()

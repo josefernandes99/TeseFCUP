@@ -21,6 +21,8 @@ LABELS_KML = os.path.join(LABELS_DIR, "labels.kml")
 CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
 GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
 # Persistent informative pixel sets
+# Toggle: enable or disable generation/use of Highscore and ProbableAgri lists
+PERSISTENT_LISTS_ENABLED = True  # Set to False to disable all related processes
 HIGHSCORE_FILE = os.path.join(LABELS_DIR, "highscore.csv")
 PROBABLE_AGRI_FILE = os.path.join(LABELS_DIR, "probableAgri.csv")
 HIGHSCORE_KML_GLOBAL = os.path.join(LABELS_DIR, "highscore_top.kml")

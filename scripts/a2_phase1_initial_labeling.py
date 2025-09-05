@@ -14,7 +14,7 @@ from config import (
     LABELS_FILE, LABELS_KML, MIN_AGRI_COUNT, MIN_AGRI_RATIO, MAX_AGRI_RATIO,
     DUPLICATE_TOLERANCE, RAW_DATA_DIR, CANDIDATE_KML, GRID_KML_DIR,
     TEMP_LABELS_FILE, ROI_COORDS, NOTE_OPTIONS,
-    HIGHSCORE_FILE, PROBABLE_AGRI_FILE
+    HIGHSCORE_FILE, PROBABLE_AGRI_FILE, PERSISTENT_LISTS_ENABLED
 )
 from al_shared import snap_to_pixel_center, load_skipped_set, record_skipped_pixel
 
@@ -572,6 +572,9 @@ def initial_labeling():
             if choice == "2":
                 break
             if choice == "3":
+                if not PERSISTENT_LISTS_ENABLED:
+                    print("Persistent lists are disabled in config; Highscore review unavailable.")
+                    continue
                 try:
                     n = int(input("How many highscore entries? ").strip())
                 except Exception:
@@ -580,6 +583,9 @@ def initial_labeling():
                 print(f"Added {added} labels.")
                 continue
             if choice == "4":
+                if not PERSISTENT_LISTS_ENABLED:
+                    print("Persistent lists are disabled in config; ProbableAgri review unavailable.")
+                    continue
                 try:
                     n = int(input("How many probableAgri entries? ").strip())
                 except Exception:
@@ -605,9 +611,17 @@ def initial_labeling():
         elif m == "2":
             added = global_sampling_labeling(n)
         elif m == "3":
-            added = assisted_labeling_from_list(HIGHSCORE_FILE, n, list_name="Highscore")
+            if not PERSISTENT_LISTS_ENABLED:
+                print("Persistent lists are disabled in config; Highscore assisted labeling unavailable.")
+                added = 0
+            else:
+                added = assisted_labeling_from_list(HIGHSCORE_FILE, n, list_name="Highscore")
         elif m == "4":
-            added = assisted_labeling_from_list(PROBABLE_AGRI_FILE, n, list_name="ProbableAgri")
+            if not PERSISTENT_LISTS_ENABLED:
+                print("Persistent lists are disabled in config; ProbableAgri assisted labeling unavailable.")
+                added = 0
+            else:
+                added = assisted_labeling_from_list(PROBABLE_AGRI_FILE, n, list_name="ProbableAgri")
         else:
             print("Invalid; skipping.")
             added = 0
@@ -625,16 +639,17 @@ def _remove_pixel_from_lists(tile: str, row: int, col: int, lat: float | None = 
     """Remove pixel from highscore/probableAgri/temp labels if present."""
     import csv as _csv
     # persistent lists (by row/col)
-    for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
-        if not os.path.exists(path):
-            continue
-        with open(path) as f:
-            rows = list(_csv.DictReader(f))
-        keep = [r for r in rows if not (r.get('tile') == tile and str(r.get('row')) == str(row) and str(r.get('col')) == str(col))]
-        if len(keep) != len(rows):
-            with open(path, 'w', newline='') as f:
-                w = _csv.DictWriter(f, fieldnames=list(keep[0].keys()) if keep else rows[0].keys())
-                w.writeheader(); w.writerows(keep)
+    if PERSISTENT_LISTS_ENABLED:
+        for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
+            if not os.path.exists(path):
+                continue
+            with open(path) as f:
+                rows = list(_csv.DictReader(f))
+            keep = [r for r in rows if not (r.get('tile') == tile and str(r.get('row')) == str(row) and str(r.get('col')) == str(col))]
+            if len(keep) != len(rows):
+                with open(path, 'w', newline='') as f:
+                    w = _csv.DictWriter(f, fieldnames=list(keep[0].keys()) if keep else rows[0].keys())
+                    w.writeheader(); w.writerows(keep)
     # global temp labels (by tile+lat+lon)
     from config import TEMP_LABELS_FILE as _TL
     if os.path.exists(_TL) and lat is not None and lon is not None:
@@ -758,9 +773,10 @@ def _batch_remove_pixels_from_lists(pixels):
                 w.writeheader(); w.writerows(kept)
         return removed, len(kept)
 
-    # Persistent lists
-    for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
-        _filter_file(path, title="Batch remove from list")
+    # Persistent lists (honor toggle)
+    if PERSISTENT_LISTS_ENABLED:
+        for path in [HIGHSCORE_FILE, PROBABLE_AGRI_FILE]:
+            _filter_file(path, title="Batch remove from list")
     # Temp labels: remove by lat/lon if available
     from config import TEMP_LABELS_FILE as _TL
     if os.path.exists(_TL) and keys_latlon:

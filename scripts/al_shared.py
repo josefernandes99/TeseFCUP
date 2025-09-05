@@ -162,7 +162,7 @@ def load_skipped_set():
         if os.path.exists(SKIPPED_PIXELS_FILE):
             with open(SKIPPED_PIXELS_FILE, newline='') as f:
                 for r in _csv.DictReader(f):
-                    t = r.get('tile');
+                    t = r.get('tile')
                     try:
                         key = f"{t}:{int(r.get('row'))}:{int(r.get('col'))}"
                         s.add(key)
