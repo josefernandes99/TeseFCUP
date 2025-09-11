@@ -56,7 +56,7 @@ from sklearn.metrics import get_scorer
 from splits import stratified_train_val_test_indices
 from features import current_feature_names
 import subprocess, sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from scipy.spatial import cKDTree
 
 # Note: grid KML generation is performed once at pipeline start.
@@ -308,8 +308,750 @@ def _ndvi_summary_from_names(arr, names):
     return ndvi_stack.mean(axis=0).reshape(-1).astype(np.float32)
 
 
+def _kml_polygons_from_tilefile(tile_csv_path, raw_data_dir, min_agri_prob, sieve_size):
+    """Worker function for parallel KML polygonization.
+
+    Reads a per-tile predictions shard (prefers .npy sidecar) and returns a list
+    of polygon rings as lists of (lon, lat) tuples.
+    """
+    try:
+        import numpy as _np
+        base = os.path.basename(tile_csv_path)
+        core = base[:-4] if base.endswith('.csv') else os.path.splitext(base)[0]
+        tile_name = core + '.tif'
+        tif = os.path.join(raw_data_dir, tile_name)
+        if not os.path.exists(tif):
+            return []
+        # Load predictions
+        npy = tile_csv_path[:-4] + '.npy' if tile_csv_path.endswith('.csv') else os.path.splitext(tile_csv_path)[0] + '.npy'
+        if os.path.exists(npy):
+            arr = _np.load(npy, mmap_mode='r')
+            if arr.size == 0:
+                return []
+            rr = arr[:, 0].astype(_np.int32)
+            cc = arr[:, 1].astype(_np.int32)
+            pr = arr[:, 2].astype(_np.float32)
+        else:
+            rr = []; cc = []; pr = []
+            with open(tile_csv_path, newline='') as f:
+                rd = csv.DictReader(f)
+                flds = [x.strip().lower() for x in (rd.fieldnames or [])]
+                has_tilepred = all(k in flds for k in ['row_idx','col_idx','predicted_prob'])
+                has_shard = all(k in flds for k in ['row','col','prob'])
+                for r in rd:
+                    try:
+                        if has_tilepred:
+                            rr.append(int(r['row_idx'])); cc.append(int(r['col_idx'])); pr.append(float(r['predicted_prob']))
+                        elif has_shard:
+                            rr.append(int(r['row'])); cc.append(int(r['col'])); pr.append(float(r['prob']))
+                    except Exception:
+                        continue
+            rr = _np.asarray(rr, dtype=_np.int32); cc = _np.asarray(cc, dtype=_np.int32); pr = _np.asarray(pr, dtype=_np.float32)
+            if rr.size == 0:
+                return []
+        import rasterio
+        from rasterio.features import sieve as _sieve, shapes as _shapes
+        from scipy.ndimage import binary_closing, binary_fill_holes
+        from pyproj import Transformer as _Transformer
+        from shapely.geometry import shape as _shape
+        from shapely.ops import transform as _shp_transform
+        with rasterio.open(tif) as src:
+            H, W = src.height, src.width
+            mask = _np.zeros((H, W), dtype=_np.uint8)
+            idx = pr >= float(min_agri_prob)
+            if not _np.any(idx):
+                return []
+            rrs = rr[idx]; ccs = cc[idx]
+            valid = (rrs >= 0) & (rrs < H) & (ccs >= 0) & (ccs < W)
+            rrs = rrs[valid]; ccs = ccs[valid]
+            if rrs.size == 0:
+                return []
+            mask[rrs, ccs] = 1
+            mask = binary_fill_holes(binary_closing(mask.astype(bool))).astype(_np.uint8)
+            if int(sieve_size) > 0:
+                try:
+                    import warnings
+                    from rasterio.errors import NotGeoreferencedWarning
+                except Exception:
+                    class NotGeoreferencedWarning(Warning):
+                        pass
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                    mask = _sieve(mask, size=int(sieve_size), connectivity=8).astype(_np.uint8)
+            rings = []
+            transformer = None
+            if src.crs and not src.crs.is_geographic:
+                transformer = _Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+            for geom, val in _shapes(mask, mask=(mask>0), transform=src.transform):
+                if not val:
+                    continue
+                coords_img = geom['coordinates'][0]
+                if transformer:
+                    ring = [transformer.transform(x, y) for x, y in coords_img]
+                else:
+                    ring = [(x, y) for x, y in coords_img]
+                rings.append(ring)
+            return rings
+    except Exception:
+        return []
+
+
+def _per_tile_metrics_worker(tile_file,
+                             has_train,
+                             feat_means,
+                             feat_std,
+                             Xs_train,
+                             labeled_keys_list,
+                             hs_on,
+                             pa_on,
+                             min_agri_prob,
+                             kd_workers,
+                             chunk_rows,
+                             dists_dir,
+                             pos_dir):
+    """Process one tile shard: compute per-chunk distances/positives, then merge to final.
+
+    Returns (tile_name, total_rows, pos_count).
+    """
+    import numpy as _np
+    import csv as _csv
+    from scipy.spatial import cKDTree as _cKDTree
+    base = os.path.basename(tile_file)
+    if base.endswith('.csv.gz'):
+        base_core = base[:-7]
+    elif base.endswith('.csv'):
+        base_core = base[:-4]
+    else:
+        base_core = os.path.splitext(base)[0]
+    tile_name = base_core + '.tif'
+    labeled_keys = set(labeled_keys_list or [])
+
+    # Training KD tree per process (training set is small in this project)
+    kd = None
+    if hs_on and has_train and Xs_train is not None and getattr(Xs_train, 'size', 0) > 0:
+        try:
+            kd = _cKDTree(_np.asarray(Xs_train, dtype=_np.float32))
+        except Exception:
+            kd = None
+
+    # Load features for this tile once if needed
+    arr = None
+    if has_train:
+        tf = get_tile_features(tile_name)
+        if tf is None:
+            return (tile_name, 0, 0)
+        arr, _, _ = tf
+
+    def _query_dists(Q):
+        if kd is None:
+            return _np.zeros((Q.shape[0],), dtype=_np.float32)
+        try:
+            d, _ = kd.query(Q, k=1, workers=int(kd_workers))
+            return d.astype(_np.float32, copy=False)
+        except Exception:
+            try:
+                d, _ = kd.query(Q, k=1)
+                return d.astype(_np.float32, copy=False)
+            except Exception:
+                # last resort: zeros
+                return _np.zeros((Q.shape[0],), dtype=_np.float32)
+
+    dists_parts = []
+    pos_parts = []
+    pos_count = 0
+    total_rows = 0
+
+    def flush_chunk(rr, cc, la, lo, pr, nd, part_idx):
+        nonlocal pos_count, total_rows
+        if rr.size == 0:
+            return part_idx
+        total_rows += rr.size
+        # Improve locality
+        try:
+            order_loc = _np.lexsort((cc, rr))
+            rr, cc, la, lo, pr, nd = rr[order_loc], cc[order_loc], la[order_loc], lo[order_loc], pr[order_loc], nd[order_loc]
+        except Exception:
+            pass
+        # distances (Highscore only)
+        if hs_on:
+            if has_train and arr is not None:
+                feats = arr[:, rr, cc].transpose(1, 0).astype(_np.float32)
+                valid = ~_np.isnan(feats).any(axis=1)
+                if not _np.all(valid):
+                    rr, cc, la, lo, pr, nd, feats = (rr[valid], cc[valid], la[valid], lo[valid], pr[valid], nd[valid], feats[valid])
+                feats_s = (feats - feat_means) / (feat_std + 1e-6)
+                dists = _query_dists(feats_s)
+            else:
+                dists = _np.zeros((rr.shape[0],), dtype=_np.float32)
+            order = _np.argsort(dists)
+            dp_part = os.path.join(dists_dir, f"{base_core}_dists.part{part_idx}.csv.gz")
+            with _open_text_auto(dp_part, 'wt') as fd:
+                w = _csv.writer(fd)
+                w.writerow(['tile','row','col','dist'])
+                for j in order:
+                    w.writerow([tile_name, int(rr[j]), int(cc[j]), float(dists[j])])
+            try:
+                arr_side = _np.vstack([
+                    rr[order].astype(_np.int32),
+                    cc[order].astype(_np.int32),
+                    dists[order].astype(_np.float32)
+                ]).T
+                npy_part = dp_part[:-7] + '.npy'
+                _np.save(npy_part, arr_side)
+            except Exception:
+                pass
+            dists_parts.append(dp_part)
+        # positives (ProbableAgri only)
+        if pa_on:
+            idx_pos = _np.where(pr >= float(min_agri_prob))[0]
+            if idx_pos.size:
+                pos_count += int(idx_pos.size)
+                orderp = idx_pos[_np.argsort(pr[idx_pos])[::-1]]
+                pp_part = os.path.join(pos_dir, f"{base_core}_pos.part{part_idx}.csv.gz")
+                with _open_text_auto(pp_part, 'wt') as fp:
+                    w = _csv.writer(fp)
+                    w.writerow(['tile','row','col','lat','lon','prob','ndvi'])
+                    for j in orderp:
+                        w.writerow([tile_name, int(rr[j]), int(cc[j]), float(la[j]), float(lo[j]), float(pr[j]), float(nd[j])])
+                try:
+                    arrp = _np.vstack([
+                        rr[orderp].astype(_np.int32),
+                        cc[orderp].astype(_np.int32),
+                        la[orderp].astype(_np.float32),
+                        lo[orderp].astype(_np.float32),
+                        pr[orderp].astype(_np.float32),
+                        nd[orderp].astype(_np.float32)
+                    ]).T
+                    npy_pp = pp_part[:-7] + '.npy'
+                    _np.save(npy_pp, arrp)
+                except Exception:
+                    pass
+                pos_parts.append(pp_part)
+        return part_idx + 1
+
+    # Stream read shard
+    CHUNK = int(chunk_rows)
+    chunk_r, chunk_c, chunk_la, chunk_lo, chunk_p, chunk_nd = [], [], [], [], [], []
+    part_idx = 0
+    with _open_text_auto(tile_file, 'rt') as f:
+        rd = _csv.DictReader(f)
+        flds = [x.strip().lower() for x in (rd.fieldnames or [])]
+        has_shard = all(k in flds for k in ['row','col','lat','lon','prob'])
+        has_tilepred = all(k in flds for k in ['row_idx','col_idx','center_lat','center_lon','predicted_prob'])
+        for r in rd:
+            try:
+                if has_shard:
+                    ri = int(r['row']); ci = int(r['col'])
+                    la = float(r['lat']); lo = float(r['lon'])
+                    p = float(r['prob']); ndv = float(r.get('ndvi') or 0.0)
+                elif has_tilepred:
+                    ri = int(r['row_idx']); ci = int(r['col_idx'])
+                    la = float(r['center_lat']); lo = float(r['center_lon'])
+                    p = float(r['predicted_prob']); ndv = float(r.get('ndvi') or 0.0)
+                else:
+                    continue
+            except Exception:
+                continue
+            key = f"{tile_name}:{la:.7f}:{lo:.7f}"
+            if key in labeled_keys:
+                continue
+            chunk_r.append(ri); chunk_c.append(ci); chunk_la.append(la); chunk_lo.append(lo); chunk_p.append(p); chunk_nd.append(ndv)
+            if len(chunk_r) >= CHUNK:
+                rr = _np.asarray(chunk_r, dtype=_np.int32)
+                cc = _np.asarray(chunk_c, dtype=_np.int32)
+                laa = _np.asarray(chunk_la, dtype=_np.float32)
+                loo = _np.asarray(chunk_lo, dtype=_np.float32)
+                pr = _np.asarray(chunk_p, dtype=_np.float32)
+                nd = _np.asarray(chunk_nd, dtype=_np.float32)
+                part_idx = flush_chunk(rr, cc, laa, loo, pr, nd, part_idx)
+                chunk_r.clear(); chunk_c.clear(); chunk_la.clear(); chunk_lo.clear(); chunk_p.clear(); chunk_nd.clear()
+        if chunk_r:
+            rr = _np.asarray(chunk_r, dtype=_np.int32)
+            cc = _np.asarray(chunk_c, dtype=_np.int32)
+            laa = _np.asarray(chunk_la, dtype=_np.float32)
+            loo = _np.asarray(chunk_lo, dtype=_np.float32)
+            pr = _np.asarray(chunk_p, dtype=_np.float32)
+            nd = _np.asarray(chunk_nd, dtype=_np.float32)
+            part_idx = flush_chunk(rr, cc, laa, loo, pr, nd, part_idx)
+
+    # Merge parts for dists
+    if dists_parts:
+        import heapq as _hq
+        dp_final = os.path.join(dists_dir, base_core + '_dists.csv.gz')
+        with _open_text_auto(dp_final, 'wt') as out:
+            w = _csv.writer(out)
+            w.writerow(['tile','row','col','dist'])
+            sources = []
+            for pp in dists_parts:
+                npy_part = pp[:-7] + '.npy'
+                if os.path.exists(npy_part):
+                    try:
+                        arr = _np.load(npy_part)
+                        sources.append({'type': 'npy', 'data': arr, 'pos': 0})
+                        continue
+                    except Exception:
+                        pass
+                f = _open_text_auto(pp, 'rt'); r = _csv.reader(f); next(r, None)
+                sources.append({'type': 'csv', 'file': f, 'reader': r})
+            heap = []
+            for i, src in enumerate(sources):
+                if src['type'] == 'npy':
+                    arr = src['data']
+                    if arr.shape[0] == 0:
+                        continue
+                    rr, cc, d = int(arr[0,0]), int(arr[0,1]), float(arr[0,2])
+                    src['pos'] = 1
+                    _hq.heappush(heap, (d, tile_name, rr, cc, i))
+                else:
+                    row = next(src['reader'], None)
+                    if not row:
+                        continue
+                    try:
+                        d = float(row[3]); rr = int(row[1]); cc = int(row[2])
+                    except Exception:
+                        continue
+                    _hq.heappush(heap, (d, tile_name, rr, cc, i))
+            while heap:
+                d, ti, rr, cc, i = _hq.heappop(heap)
+                w.writerow([ti, rr, cc, d])
+                src = sources[i]
+                if src['type'] == 'npy':
+                    posi = src.get('pos', 0)
+                    arr = src['data']
+                    if posi < arr.shape[0]:
+                        rr2, cc2, d2 = int(arr[posi,0]), int(arr[posi,1]), float(arr[posi,2])
+                        src['pos'] = posi + 1
+                        _hq.heappush(heap, (d2, tile_name, rr2, cc2, i))
+                else:
+                    row2 = next(src['reader'], None)
+                    if row2:
+                        try:
+                            d2 = float(row2[3]); rr2 = int(row2[1]); cc2 = int(row2[2])
+                        except Exception:
+                            row2 = None
+                        if row2:
+                            _hq.heappush(heap, (d2, tile_name, rr2, cc2, i))
+            for src in sources:
+                if src['type'] == 'csv':
+                    try: src['file'].close()
+                    except Exception: pass
+        # cleanup parts
+        for pp in dists_parts:
+            try: os.remove(pp)
+            except Exception: pass
+            npy_part = pp[:-7] + '.npy'
+            if os.path.exists(npy_part):
+                try: os.remove(npy_part)
+                except Exception: pass
+
+    # Merge parts for positives
+    if pos_parts:
+        import heapq as _hq
+        pp_final = os.path.join(pos_dir, base_core + '_pos.csv.gz')
+        with _open_text_auto(pp_final, 'wt') as out:
+            w = _csv.writer(out)
+            w.writerow(['tile','row','col','lat','lon','prob','ndvi'])
+            sources = []
+            for pp in pos_parts:
+                npy_part = pp[:-7] + '.npy'
+                if os.path.exists(npy_part):
+                    try:
+                        arr = _np.load(npy_part)
+                        sources.append({'type':'npy','data':arr,'pos':0})
+                        continue
+                    except Exception:
+                        pass
+                f = _open_text_auto(pp, 'rt'); r = _csv.reader(f); next(r, None)
+                sources.append({'type':'csv','file':f,'reader':r})
+            heap = []
+            for i, src in enumerate(sources):
+                if src['type'] == 'npy':
+                    arr = src['data']
+                    if arr.shape[0] == 0:
+                        continue
+                    rr, cc = int(arr[0,0]), int(arr[0,1])
+                    la, lo = float(arr[0,2]), float(arr[0,3])
+                    pr, nd = float(arr[0,4]), float(arr[0,5])
+                    src['pos'] = 1
+                    _hq.heappush(heap, (-pr, i, (rr, cc, la, lo, pr, nd)))
+                else:
+                    row = next(src['reader'], None)
+                    if not row:
+                        continue
+                    try:
+                        rr = int(row[1]); cc = int(row[2])
+                        la = float(row[3]); lo = float(row[4])
+                        pr = float(row[5]); nd = float(row[6]) if len(row) > 6 and row[6] != '' else 0.0
+                    except Exception:
+                        continue
+                    _hq.heappush(heap, (-pr, i, (rr, cc, la, lo, pr, nd)))
+            while heap:
+                neg, i, tpl = _hq.heappop(heap)
+                rr, cc, la, lo, pr, nd = tpl
+                w.writerow([tile_name, rr, cc, la, lo, pr, nd])
+                src = sources[i]
+                if src['type'] == 'npy':
+                    posi = src.get('pos', 0)
+                    arr = src['data']
+                    if posi < arr.shape[0]:
+                        rr2, cc2 = int(arr[posi,0]), int(arr[posi,1])
+                        la2, lo2 = float(arr[posi,2]), float(arr[posi,3])
+                        pr2, nd2 = float(arr[posi,4]), float(arr[posi,5])
+                        src['pos'] = posi + 1
+                        _hq.heappush(heap, (-pr2, i, (rr2, cc2, la2, lo2, pr2, nd2)))
+                else:
+                    row2 = next(src['reader'], None)
+                    if row2:
+                        try:
+                            rr2 = int(row2[1]); cc2 = int(row2[2])
+                            la2 = float(row2[3]); lo2 = float(row2[4])
+                            pr2 = float(row2[5]); nd2 = float(row2[6]) if len(row2) > 6 and row2[6] != '' else 0.0
+                        except Exception:
+                            row2 = None
+                        if row2:
+                            _hq.heappush(heap, (-pr2, i, (rr2, cc2, la2, lo2, pr2, nd2)))
+            for src in sources:
+                if src['type'] == 'csv':
+                    try: src['file'].close()
+                    except Exception: pass
+        # cleanup
+        for pp in pos_parts:
+            try: os.remove(pp)
+            except Exception: pass
+            npy_part = pp[:-7] + '.npy'
+            if os.path.exists(npy_part):
+                try: os.remove(npy_part)
+                except Exception: pass
+
+    return (tile_name, total_rows, pos_count)
+
+
+def _per_tile_score_worker(tile_base,
+                           ranks_dir,
+                           shards_dir,
+                           round_dir,
+                           scored_dir,
+                           min_agri_prob,
+                           wu, wr, wc,
+                           uncertainty_delta):
+    import csv as _csv
+    import numpy as _np
+    rp = os.path.join(ranks_dir, tile_base + '_rank.csv')
+    sp_csv = os.path.join(shards_dir, tile_base + '.csv')
+    sp_gz = sp_csv + '.gz'
+    sp = sp_gz if os.path.exists(sp_gz) else sp_csv
+    if not os.path.exists(sp):
+        alt = os.path.join(round_dir, '_tile_preds', tile_base + '.csv')
+        if os.path.exists(alt):
+            sp = alt
+    if not (os.path.exists(sp) and os.path.exists(rp)):
+        return None
+    ranks = {}
+    with open(rp) as f:
+        rd = _csv.DictReader(f)
+        for r in rd:
+            ranks[(int(r['row']), int(r['col']))] = float(r['rank'])
+    rows = []
+    with _open_text_auto(sp, 'rt') as f:
+        rd = _csv.DictReader(f)
+        flds = [x.strip().lower() for x in (rd.fieldnames or [])]
+        has_shard = all(k in flds for k in ['row','col','lat','lon','prob'])
+        has_tilepred = all(k in flds for k in ['row_idx','col_idx','center_lat','center_lon','predicted_prob'])
+        for r in rd:
+            try:
+                if has_shard:
+                    rr = int(r['row']); cc = int(r['col'])
+                    la = float(r['lat']); lo = float(r['lon'])
+                    pr = float(r['prob']); nd = float(r.get('ndvi') or 0.0)
+                elif has_tilepred:
+                    rr = int(r['row_idx']); cc = int(r['col_idx'])
+                    la = float(r['center_lat']); lo = float(r['center_lon'])
+                    pr = float(r['predicted_prob']); nd = float(r.get('ndvi') or 0.0)
+                else:
+                    continue
+            except Exception:
+                continue
+            R = ranks.get((rr, cc), 0.0)
+            U = float(max(0.0, min(1.0, 1.0 - 2.0*abs(pr - 0.5))))
+            C = 1.0 if abs(pr - float(min_agri_prob)) < float(uncertainty_delta) else 0.0
+            score = wu*U + wr*R + wc*C
+            tile_name = tile_base + '.tif'
+            rows.append((score, (tile_name, rr, cc, la, lo, pr, nd)))
+    if not rows:
+        return None
+    rows.sort(key=lambda t: t[0], reverse=True)
+    outp = os.path.join(scored_dir, tile_base + '_scored.csv.gz')
+    # optional .npy sidecar
+    try:
+        arr = _np.zeros((len(rows), 7), dtype=_np.float32)
+        for i, (sc, tpl) in enumerate(rows):
+            _, rr, cc, la, lo, pr, nd = tpl
+            arr[i, :] = [float(rr), float(cc), float(la), float(lo), float(pr), float(nd), float(sc)]
+        _np.save(os.path.join(scored_dir, tile_base + '_scored.npy'), arr)
+    except Exception:
+        pass
+    with _open_text_auto(outp, 'wt') as f:
+        w = _csv.writer(f)
+        w.writerow(['tile','row','col','lat','lon','prob','ndvi','score'])
+        for sc, tpl in rows:
+            tile, rr, cc, la, lo, pr, nd = tpl
+            w.writerow([tile, rr, cc, la, lo, pr, nd, f"{sc:.6f}"])
+    return outp
+
+
+def _merge_scored_files(files, out_path, total=None):
+    """Single-process k-way merge of scored files (desc by score).
+
+    Each input file is a CSV (optionally with .npy sidecar). Writes merged CSV.
+    """
+    import csv as _csv
+    import numpy as _np
+    import heapq
+    use_sidecar = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
+    hs = []
+    sources = []  # ('npy', arr, pos, tile) or ('csv', file, reader)
+    for fp in files:
+        base = os.path.basename(fp)
+        if base.endswith('.csv.gz'):
+            npy = fp[:-7] + '.npy'
+            core = base[:-7]
+        elif base.endswith('.csv'):
+            npy = fp[:-4] + '.npy'
+            core = base[:-4]
+        else:
+            npy = os.path.splitext(fp)[0] + '.npy'
+            core = os.path.splitext(base)[0]
+        core2 = core.replace('_scored', '')
+        tile_name = core2 + '.tif'
+        if use_sidecar and os.path.exists(npy):
+            try:
+                arr = _np.load(npy, mmap_mode='r')
+                if arr.shape[0] > 0:
+                    rr, cc, la, lo, pr, nd, sc = [arr[0, i] for i in range(7)]
+                    sources.append(('npy', arr, 1, tile_name))
+                    heapq.heappush(hs, (-float(sc), (tile_name, int(rr), int(cc), float(la), float(lo), float(pr), float(nd), float(sc)), len(sources)-1))
+                    continue
+            except Exception:
+                pass
+        f = _open_text_auto(fp, 'rt'); r = _csv.reader(f); next(r, None)
+        sources.append(('csv', f, r))
+        while True:
+            try:
+                row = next(r)
+            except StopIteration:
+                row = None
+            if not row:
+                if row is None:
+                    break
+                else:
+                    continue
+            try:
+                sc = float(row[7])
+            except Exception:
+                continue
+            heapq.heappush(hs, (-sc, row, len(sources)-1))
+            break
+    from progress_utils import new_progress as _npb2
+    # Optional global sidecar (.npy) for highscore: (row,col,lat,lon,prob,ndvi,score)
+    mm = None
+    written = 0
+    side_path = None
+    if total and total > 0 and use_sidecar:
+        try:
+            side_path = out_path[:-4] + '.npy' if out_path.endswith('.csv') else os.path.splitext(out_path)[0] + '.npy'
+            mm = _np.memmap(side_path, dtype=_np.float32, mode='w+', shape=(int(total), 7))
+        except Exception:
+            mm = None
+            side_path = None
+    with open(out_path,'w',newline='') as out, _npb2() as _prog2:
+        w = _csv.writer(out); w.writerow(['tile','row','col','lat','lon','prob','ndvi','score'])
+        t_hs = _prog2.add_task("Global highscore merge", total=total or 0)
+        count = 0
+        while hs:
+            neg, row, idx = heapq.heappop(hs)
+            if isinstance(row, (list, tuple)) and isinstance(row[0], str) and len(row) == 8:
+                w.writerow(row)
+                # write sidecar row if enabled
+                if mm is not None:
+                    try:
+                        _, rr, cc, la, lo, pr, nd, sc = row
+                        mm[written, 0] = float(rr)
+                        mm[written, 1] = float(cc)
+                        mm[written, 2] = float(la)
+                        mm[written, 3] = float(lo)
+                        mm[written, 4] = float(pr)
+                        mm[written, 5] = float(nd)
+                        mm[written, 6] = float(sc)
+                        written += 1
+                    except Exception:
+                        pass
+            else:
+                w.writerow(row)
+                if mm is not None:
+                    try:
+                        # row is a CSV row list: tile,row,col,lat,lon,prob,ndvi,score
+                        rr = float(row[1]); cc = float(row[2]); la = float(row[3]); lo = float(row[4])
+                        pr = float(row[5]); nd = float(row[6]); sc = float(row[7])
+                        mm[written, 0] = rr; mm[written, 1] = cc; mm[written, 2] = la; mm[written, 3] = lo
+                        mm[written, 4] = pr; mm[written, 5] = nd; mm[written, 6] = sc
+                        written += 1
+                    except Exception:
+                        pass
+            count += 1
+            if total and count % 50000 == 0:
+                _prog2.update(t_hs, completed=count)
+            src = sources[idx]
+            if src[0] == 'npy':
+                arr, pos, tile_name = src[1], src[2], src[3]
+                if pos < arr.shape[0]:
+                    rr, cc, la, lo, pr, nd, sc2 = [arr[pos, i] for i in range(7)]
+                    sources[idx] = ('npy', arr, pos+1, tile_name)
+                    heapq.heappush(hs, (-float(sc2), (tile_name, int(rr), int(cc), float(la), float(lo), float(pr), float(nd), float(sc2)), idx))
+            else:
+                f, r = src[1], src[2]
+                while True:
+                    try:
+                        row2 = next(r)
+                    except StopIteration:
+                        row2 = None
+                    if not row2:
+                        if row2 is None:
+                            break
+                        else:
+                            continue
+                    try:
+                        sc2 = float(row2[7])
+                    except Exception:
+                        continue
+                    heapq.heappush(hs, (-sc2, row2, idx))
+                    break
+        if total:
+            # finalize the progress bar to 100%. Use the active progress
+            # instance from the context (not the context manager itself).
+            _prog2.update(t_hs, completed=total)
+    for src in sources:
+        if src[0] == 'csv':
+            try: src[1].close()
+            except Exception: pass
+    # finalize sidecar
+    if mm is not None:
+        try:
+            mm.flush(); del mm
+            # if fewer rows written than total, we could leave trailing zeros; acceptable for K indexing
+        except Exception:
+            # remove incomplete sidecar
+            try:
+                if side_path and os.path.exists(side_path):
+                    os.remove(side_path)
+            except Exception:
+                pass
+
+
+def _merge_pos_files(files, out_path, total=None):
+    """Single-process k-way merge of probable-agri files (desc by prob)."""
+    import csv as _csv
+    import numpy as _np
+    import heapq
+    use_sidecar = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
+    hs = []
+    sources = []
+    for fp in files:
+        base = os.path.basename(fp)
+        if base.endswith('.csv.gz'):
+            npy = fp[:-7] + '.npy'
+            core = base[:-7]
+        elif base.endswith('.csv'):
+            npy = fp[:-4] + '.npy'
+            core = base[:-4]
+        else:
+            npy = os.path.splitext(fp)[0] + '.npy'
+            core = os.path.splitext(base)[0]
+        core2 = core.replace('_pos', '')
+        tile_name = core2 + '.tif'
+        if use_sidecar and os.path.exists(npy):
+            try:
+                arr = _np.load(npy, mmap_mode='r')
+                if arr.shape[0] > 0:
+                    rr, cc = int(arr[0,0]), int(arr[0,1])
+                    la, lo = float(arr[0,2]), float(arr[0,3])
+                    pr, nd = float(arr[0,4]), float(arr[0,5])
+                    sources.append(('npy', arr, 1, tile_name))
+                    heapq.heappush(hs, (-pr, (tile_name, rr, cc, la, lo, pr, nd), len(sources)-1))
+                    continue
+            except Exception:
+                pass
+        f = _open_text_auto(fp, 'rt'); r = _csv.reader(f); next(r, None)
+        sources.append(('csv', f, r))
+        while True:
+            try:
+                row = next(r)
+            except StopIteration:
+                row = None
+            if not row:
+                if row is None:
+                    break
+                else:
+                    continue
+            try:
+                pr = float(row[5])
+            except Exception:
+                continue
+            heapq.heappush(hs, (-pr, row, len(sources)-1))
+            break
+    from progress_utils import new_progress as _npb3
+    with open(out_path,'w',newline='') as out, _npb3() as _prog3:
+        w = _csv.writer(out); w.writerow(['tile','row','col','lat','lon','prob','ndvi'])
+        t_pa = _prog3.add_task("Global probableAgri merge", total=total or 0)
+        count = 0
+        while hs:
+            neg, row, idx = heapq.heappop(hs)
+            if isinstance(row, (list, tuple)) and isinstance(row[0], str) and len(row) >= 6:
+                w.writerow(row)
+            else:
+                w.writerow(row)
+            count += 1
+            if total and count % 50000 == 0:
+                _prog3.update(t_pa, completed=count)
+            src = sources[idx]
+            if src[0] == 'npy':
+                arr, pos, tile_name = src[1], src[2], src[3]
+                if pos < arr.shape[0]:
+                    rr, cc = int(arr[pos,0]), int(arr[pos,1])
+                    la, lo = float(arr[pos,2]), float(arr[pos,3])
+                    pr, nd = float(arr[pos,4]), float(arr[pos,5])
+                    sources[idx] = ('npy', arr, pos+1, tile_name)
+                    heapq.heappush(hs, (-pr, (tile_name, rr, cc, la, lo, pr, nd), idx))
+            else:
+                f, r = src[1], src[2]
+                while True:
+                    try:
+                        row2 = next(r)
+                    except StopIteration:
+                        row2 = None
+                    if not row2:
+                        if row2 is None:
+                            break
+                        else:
+                            continue
+                    try:
+                        pr2 = float(row2[5])
+                    except Exception:
+                        continue
+                    heapq.heappush(hs, (-pr2, row2, idx))
+                    break
+        if total:
+            _npb3().update(t_pa, completed=total)
+    for src in sources:
+        if src[0] == 'csv':
+            try: src[1].close()
+            except Exception: pass
+
+
 def predict_entire_tile(tile_path, model, progress=None, task_id=None):
-    """Run inference on a tile and optionally update a progress bar."""
+    """Run inference on a tile and stream rows to avoid big in-memory lists.
+
+    Returns an iterator of rows: [tile, row, col, lat, lon, prob, ndvi].
+    """
     tile_name = os.path.basename(tile_path)
     with rasterio.open(tile_path) as src:
         # Reuse cached per-tile features if available to avoid recomputation
@@ -317,16 +1059,14 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
         tf = get_tile_features(tile)
         if tf is not None:
             arr, _, _ = tf
-            # get_tile_features returns derived features already; infer names approximately
             names = current_feature_names()
         else:
             raw = src.read().astype(np.float32)
             arr, names = add_derived_features(raw)
-        b, H, W = arr.shape
-        Xflat  = arr.reshape(b, -1).T                # (H*W, bands)
-        rows = np.repeat(np.arange(H, dtype=np.int32), W)
-        cols = np.tile(np.arange(W, dtype=np.int32), H)
-        # Chunked inference to limit memory
+        ch, H, W = arr.shape
+        # Inference in spatial blocks to improve locality and smooth CPU
+        block = int(getattr(cfg, 'INFER_BLOCK_SIZE', 512))
+
         def _effective_bs():
             base = int(getattr(cfg, 'INFER_MAX_PIXELS_PER_BATCH', 400_000))
             if not bool(getattr(cfg, 'AUTO_BATCH_TUNING_ENABLED', True)):
@@ -342,37 +1082,52 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
                 return min(max(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RANDOMFOREST', 400_000))), base)
             return base
 
-        if cfg.INFER_CHUNKING_ENABLED:
-            probs = np.empty((Xflat.shape[0],), dtype=np.float32)
-            bs = _effective_bs()
-            for i in range(0, Xflat.shape[0], bs):
-                probs[i:i+bs] = model.predict_proba(Xflat[i:i+bs])[:, 1].astype(np.float32)
-        else:
-            probs = model.predict_proba(Xflat)[:, 1].astype(np.float32)
-
-        # vectorized center coordinate computation
-        xs, ys = rasterio.transform.xy(src.transform, rows.tolist(), cols.tolist(), offset="center")
-        xs = np.asarray(xs)
-        ys = np.asarray(ys)
-        if src.crs and not src.crs.is_geographic:
-            transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
-            xs, ys = transformer.transform(xs, ys)
-
+        bs = _effective_bs()
+        a, bA, c0 = src.transform.a, src.transform.b, src.transform.c
+        d, e, f0 = src.transform.d, src.transform.e, src.transform.f
+        # center offset: add half a pixel
+        ca = 0.5 * a + 0.5 * bA
+        ce = 0.5 * d + 0.5 * e
         ndvi_vec = _ndvi_summary_from_names(arr, names)
         if ndvi_vec is None:
-            # Gracefully fallback to zeros if NDVI not present
-            ndvi_vec = np.zeros_like(probs, dtype=np.float32)
-        ndvi_vals = ndvi_vec
-        results = [
-            [tile_name, int(r), int(c), float(lat), float(lon), float(p), float(ndvi)]
-            for r, c, lat, lon, p, ndvi in zip(rows, cols, ys, xs, probs, ndvi_vals)
-        ]
+            ndvi_vec = np.zeros((H * W,), dtype=np.float32)
 
-        if progress is not None and task_id is not None:
-            # bulk update instead of per-pixel loop
-            progress.update(task_id, advance=len(results))
+        def _row_iter():
+            for r0 in range(0, H, block):
+                r1 = min(H, r0 + block)
+                for c_start in range(0, W, block):
+                    c1 = min(W, c_start + block)
+                    # Flatten features for this block
+                    sub = arr[:, r0:r1, c_start:c1].reshape(ch, -1).T  # (pixels, bands)
+                    # Predict in chunks inside the block
+                    probs_blk = np.empty((sub.shape[0],), dtype=np.float32)
+                    if cfg.INFER_CHUNKING_ENABLED:
+                        for i in range(0, sub.shape[0], bs):
+                            probs_blk[i:i + bs] = model.predict_proba(sub[i:i + bs])[:, 1].astype(np.float32)
+                    else:
+                        probs_blk[:] = model.predict_proba(sub)[:, 1].astype(np.float32)
+                    # Compute row/col indices for this block
+                    hB, wB = (r1 - r0), (c1 - c_start)
+                    rows_blk = np.repeat(np.arange(r0, r1, dtype=np.int32), wB)
+                    cols_blk = np.tile(np.arange(c_start, c1, dtype=np.int32), hB)
+                    # Vectorized center coordinates via affine
+                    xs = a * cols_blk + bA * rows_blk + c0 + ca
+                    ys = d * cols_blk + e * rows_blk + f0 + ce
+                    if src.crs and not src.crs.is_geographic:
+                        transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+                        xs, ys = transformer.transform(xs, ys)
+                    # NDVI for block from global vector
+                    ndvi_blk = ndvi_vec.reshape(H, W)[r0:r1, c_start:c1].reshape(-1)
+                    for r_i, c_i, lat, lon, p, nv in zip(rows_blk, cols_blk, ys, xs, probs_blk, ndvi_blk):
+                        yield [tile_name, int(r_i), int(c_i), float(lat), float(lon), float(p), float(nv)]
+            if progress is not None and task_id is not None:
+                # Not tracking exact count here; streaming avoids peak RAM.
+                try:
+                    progress.update(task_id)
+                except Exception:
+                    pass
 
-    return results
+        return _row_iter()
 
 
 # -----------------------------------------------------------------------------
@@ -400,10 +1155,23 @@ def _write_tile_predictions_csv(round_folder, tile_name, rows):
     tmp_dir = os.path.join(round_folder, "_tile_preds")
     os.makedirs(tmp_dir, exist_ok=True)
     path = os.path.join(tmp_dir, f"{os.path.splitext(tile_name)[0]}.csv")
+    from collections.abc import Sequence
+    streaming = not isinstance(rows, (list, tuple))
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["tile","row_idx","col_idx","center_lat","center_lon","predicted_prob","ndvi"])
         w.writerows(rows)
+    # Also write a binary sidecar for faster downstream consumption
+    try:
+        import numpy as _np
+        # Only build sidecar when rows is a materialized sequence we can re-iterate
+        if (not streaming) and rows:
+            arr = _np.asarray([[r[1], r[2], r[5], r[6]] for r in rows], dtype=_np.float32)
+            # first two columns were ints; cast back on load as needed
+            side = os.path.join(tmp_dir, f"{os.path.splitext(tile_name)[0]}.npy")
+            _np.save(side, arr)
+    except Exception:
+        pass
     return path
 
 
@@ -442,16 +1210,8 @@ def _merge_tile_prediction_csvs(round_folder, merged_path=None):
                         _prog.update(task, completed=min(processed, total_rows))
         if total_rows:
             _prog.update(task, completed=total_rows)
-    # cleanup shards
-    for fp in files:
-        try:
-            os.remove(fp)
-        except Exception:
-            pass
-    try:
-        os.rmdir(tmp_dir)
-    except Exception:
-        pass
+    # Keep per-tile shards to allow downstream steps to reuse them directly
+    # (avoids re-splitting the merged predictions.csv during metrics refresh).
     print(f"Predictions written to {merged_path}")
     return merged_path
 
@@ -512,111 +1272,89 @@ def save_agricultural_polygons_kml(round_folder, round_num, pred_csv=None, preds
 
     Accepts either a path to predictions.csv or an in-memory list of
     [tile,row,col,lat,lon,prob,ndvi] rows via `preds`.
+    Now prefers per-tile shards in `_tile_preds/` and parallelizes polygonization.
     """
-    pred_map = {}
-    if preds is not None:
-        for tile, r, c, _la, _lo, p, _ndvi in preds:
-            if tile not in pred_map:
-                pred_map[tile] = ([], [], [])
-            pred_map[tile][0].append(int(r))
-            pred_map[tile][1].append(int(c))
-            pred_map[tile][2].append(float(p))
-        for t, (rs, cs, ps) in pred_map.items():
-            pred_map[t] = (
-                np.array(rs, dtype=np.int32),
-                np.array(cs, dtype=np.int32),
-                np.array(ps, dtype=np.float32),
-            )
+    kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
+
+    # Prefer per-tile shards directory
+    tile_dir = os.path.join(round_folder, '_tile_preds')
+    rings_all = []
+    if os.path.isdir(tile_dir):
+        files = sorted([p for p in glob.glob(os.path.join(tile_dir, '*.csv'))])
+        if files:
+            with new_progress() as prog:
+                task = prog.add_task("Polygonizing tiles", total=len(files))
+                max_workers = max(1, (cpu_count() or 4) - 2)
+                with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                    futs = {ex.submit(_kml_polygons_from_tilefile, fp, RAW_DATA_DIR, float(cfg.MIN_AGRI_PROB), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))): fp for fp in files}
+                    for fut in as_completed(futs):
+                        try:
+                            rings_all.extend(fut.result() or [])
+                        except Exception:
+                            pass
+                        prog.update(task, advance=1)
     else:
+        # Fallback to merged predictions.csv path (sequential)
         pred_csv = pred_csv or os.path.join(round_folder, "predictions.csv")
         if not os.path.exists(pred_csv):
             print(f"Missing predictions file => {pred_csv}")
             return
         pred_map = _load_predictions_by_tile(pred_csv)
-    kml_path = os.path.join(round_folder, f"agricultural_patches_round_{round_num}.kml")
-    agri_polys = []
-
-    with new_progress() as prog:
-        task = prog.add_task("Polygonizing tiles", total=len(pred_map))
-
-        for tile, (rows, cols, probs) in pred_map.items():
-            tif = os.path.join(RAW_DATA_DIR, tile)
-            if not os.path.exists(tif):
-                print(f"WARNING: Missing tile for predictions => {tile}")
+        with new_progress() as prog:
+            task = prog.add_task("Polygonizing tiles", total=len(pred_map))
+            for tile, (rows, cols, probs) in pred_map.items():
+                tif = os.path.join(RAW_DATA_DIR, tile)
+                if not os.path.exists(tif):
+                    prog.update(task, advance=1)
+                    continue
+                with rasterio.open(tif) as src:
+                    H, W = src.height, src.width
+                    mask = np.zeros((H, W), dtype=np.uint8)
+                    mask[rows, cols] = (probs >= float(cfg.MIN_AGRI_PROB)).astype(np.uint8)
+                    from scipy.ndimage import binary_closing, binary_fill_holes
+                    mask = binary_fill_holes(binary_closing(mask.astype(bool))).astype(np.uint8)
+                    if getattr(cfg, 'SIEVE_MIN_SIZE', 0) > 0:
+                        mask = sieve(mask, size=int(cfg.SIEVE_MIN_SIZE), connectivity=8).astype(np.uint8)
+                    transformer = None
+                    if src.crs and not src.crs.is_geographic:
+                        transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+                    for geom, val in shapes(mask, mask=(mask>0), transform=src.transform):
+                        if not val:
+                            continue
+                        coords_img = geom['coordinates'][0]
+                        if transformer:
+                            ring = [transformer.transform(x, y) for x, y in coords_img]
+                        else:
+                            ring = [(x, y) for x, y in coords_img]
+                        rings_all.append(ring)
                 prog.update(task, advance=1)
-                continue
-            with rasterio.open(tif) as src:
-                H, W = src.height, src.width
-                arr_probs = np.zeros((H, W), dtype=np.float32)
-                arr_probs[rows, cols] = probs
-                agri_mask = arr_probs >= cfg.MIN_AGRI_PROB
-                from scipy.ndimage import binary_closing, binary_fill_holes
-                agri_mask = binary_fill_holes(binary_closing(agri_mask))
-                if cfg.SIEVE_MIN_SIZE > 0:
-                    import warnings
-                    try:
-                        from rasterio.errors import NotGeoreferencedWarning
-                    except Exception:
-                        class NotGeoreferencedWarning(Warning):
-                            pass
-                    with warnings.catch_warnings():
-                        warnings.simplefilter("ignore", NotGeoreferencedWarning)
-                        agri_mask = sieve(agri_mask.astype("uint8"), size=cfg.SIEVE_MIN_SIZE, connectivity=8).astype(bool)
-                transformer = None
-                if src.crs and not src.crs.is_geographic:
-                    transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
-                # collect polygons
-                for geom, val in shapes(agri_mask.astype("uint8"), mask=agri_mask, transform=src.transform):
-                    if val != 1:
-                        continue
-                    poly = shape(geom)
-                    if transformer:
-                        poly = shp_transform(transformer.transform, poly)
-                    agri_polys.append(poly)
-            prog.update(task, advance=1)
 
-    if not agri_polys:
+    if not rings_all:
         print(f"WARNING: No polygons (all probs < {cfg.MIN_AGRI_PROB})")
         return
-    # Merge for compactness
-    def ensure_list(merged):
-        if isinstance(merged, Polygon):
-            return [merged]
-        elif isinstance(merged, MultiPolygon):
-            return list(merged.geoms)
-        else:
-            return []
-    agri_list = ensure_list(unary_union(agri_polys)) if agri_polys else []
-
-    # Build KML with one blue style
+    # Build KML with one blue style, streaming polygons (skip union for performance)
     doc = Element('Document')
     style_ag = SubElement(doc, 'Style', id='agri')
-    # Color set to web hex #55ffff -> ABGR aabbggrr: AA + BB(ff) + GG(ff) + RR(55)
-    # Line: opaque; Fill: semi-transparent
     ln = SubElement(style_ag, 'LineStyle'); SubElement(ln, 'color').text = 'ffffff55'; SubElement(ln, 'width').text = '1'
     ps = SubElement(style_ag, 'PolyStyle'); SubElement(ps, 'color').text = '40ffff55'; SubElement(ps, 'outline').text = '1'
-
     total_polys = 0
-    for p in agri_list:
-        coords = list(p.exterior.coords)
-        coord_str = " ".join(f"{lon},{lat},0" for lon, lat in coords)
+    for coords in rings_all:
         pm = SubElement(doc, 'Placemark')
         SubElement(pm, 'styleUrl').text = '#agri'
         poly_el = SubElement(pm, 'Polygon')
         ob = SubElement(poly_el, 'outerBoundaryIs')
         ring = SubElement(ob, 'LinearRing')
-        SubElement(ring, 'coordinates').text = coord_str
+        SubElement(ring, 'coordinates').text = ' '.join(f"{lon},{lat},0" for lon, lat in coords)
         total_polys += 1
 
-    if kml_path:
-        kml = Element('kml'); kml.set('xmlns','http://www.opengis.net/kml/2.2')
-        d2 = SubElement(kml, 'Document')
-        for el in list(doc):
-            d2.append(el)
-        xml = parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
-        with open(kml_path, 'wb') as f:
-            f.write(xml)
-        print(f"{total_polys} agricultural polygons saved to {kml_path}")
+    kml = Element('kml'); kml.set('xmlns','http://www.opengis.net/kml/2.2')
+    d2 = SubElement(kml, 'Document')
+    for el in list(doc):
+        d2.append(el)
+    xml = parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
+    with open(kml_path, 'wb') as f:
+        f.write(xml)
+    print(f"{total_polys} agricultural polygons saved to {kml_path}")
 
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)
@@ -831,6 +1569,13 @@ def active_learning_round(
         for k, v in metrics.items():
             tbl.add_row(k, f"{v:.4f}" if isinstance(v, float) else str(v))
         Console().print(tbl)
+        # Update aggregate rounds metrics chart (best-effort)
+        try:
+            agg_script = os.path.join(os.path.dirname(__file__), 'plot_round_metrics.py')
+            if os.path.exists(agg_script):
+                subprocess.run([sys.executable, agg_script], check=False)
+        except Exception:
+            pass
     # snapshot config used
     try:
         snap = {k: getattr(cfg, k) for k in dir(cfg) if k.isupper()}
@@ -879,7 +1624,7 @@ def active_learning_round(
 
     # Update persistent informative lists via the standalone script (optional).
     pred_csv_arg = os.path.join(rnd_dir, "predictions.csv")
-    if getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+    if getattr(cfg, 'HIGHSCORE_LIST_ENABLED', True) or getattr(cfg, 'PROBABLE_AGRI_LIST_ENABLED', False):
         try:
             script = os.path.join(os.path.dirname(__file__), "refresh_lists.py")
             print("Refreshing persistent lists via refresh_lists.py ...")
@@ -1327,6 +2072,16 @@ def _update_persistent_lists(preds, train_rows, X_train, y_train, round_num, rou
                 topk_pa = 50000
             _write_ranked_pixel_kml(top_pa, cfg.PROBABLE_AGRI_KML_GLOBAL, weight_key='prob', top_k=topk_pa)
     print("Persistent lists updated.")
+    # Cleanup heavy per-round caches to save disk space (safe after lists/KML)
+    try:
+        for sub in ['_global_refresh', '_tile_preds']:
+            p = os.path.join(round_dir, sub)
+            if os.path.isdir(p):
+                import shutil as _shutil
+                _shutil.rmtree(p, ignore_errors=True)
+                print(f"Removed cache folder => {p}")
+    except Exception as _e:
+        print(f"Round cache cleanup warning: {_e}")
 
 
 def _write_points_kml(rows, out_path, placemark_prefix="#"):
@@ -1536,16 +2291,33 @@ def _write_ranked_pixel_kml(rows, out_path, weight_key='score', top_k=0):
                 with rasterio.open(tif) as src:
                     H, W = src.height, src.width
                     import numpy as _np
-                    mask = _np.zeros((H, W), dtype=_np.uint8)
+                    # Build a compact windowed mask around the points to limit memory use
+                    rs = [r for r, _ in pts if 0 <= r < H]
+                    cs = [c for _, c in pts if 0 <= c < W]
+                    if not rs or not cs:
+                        continue
+                    r0, r1 = max(0, min(rs)), min(H-1, max(rs))
+                    c0, c1 = max(0, min(cs)), min(W-1, max(cs))
+                    h_win = int(r1 - r0 + 1)
+                    w_win = int(c1 - c0 + 1)
+                    if h_win <= 0 or w_win <= 0:
+                        continue
+                    mask = _np.zeros((h_win, w_win), dtype=_np.uint8)
                     for r, c in pts:
-                        if 0 <= r < H and 0 <= c < W:
-                            mask[r, c] = 1
+                        if r0 <= r <= r1 and c0 <= c <= c1:
+                            mask[r - r0, c - c0] = 1
                     if not mask.any():
                         continue
                     transformer = None
                     if src.crs and not src.crs.is_geographic:
                         transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
-                    for geom, val in shapes(mask.astype('int32'), mask=(mask>0), transform=src.transform):
+                    # Adjust transform for the window
+                    try:
+                        from affine import Affine as _Affine
+                        window_transform = src.transform * _Affine.translation(c0, r0)
+                    except Exception:
+                        window_transform = src.transform
+                    for geom, val in shapes(mask.astype('int32'), mask=(mask>0), transform=window_transform):
                         g = shape(geom)
                         if transformer:
                             g = shp_transform(transformer.transform, g)
@@ -1607,7 +2379,17 @@ def _split_predictions_to_shards(pred_csv, out_dir):
     return counts
 
 def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_train, y_train):
-    print("Refreshing global highscore and probableAgri from all pixels...")
+    hs_on = bool(getattr(cfg, 'HIGHSCORE_LIST_ENABLED', True))
+    pa_on = bool(getattr(cfg, 'PROBABLE_AGRI_LIST_ENABLED', False))
+    if not (hs_on or pa_on):
+        print("Both persistent lists disabled; nothing to refresh.")
+        return
+    if hs_on and pa_on:
+        print("Refreshing global Highscore and ProbableAgri from all pixels...")
+    elif hs_on:
+        print("Refreshing global Highscore list from all pixels...")
+    else:
+        print("Refreshing global ProbableAgri list from all pixels...")
     # master labels only
     labeled_keys = set()
     for r in train_rows:
@@ -1689,14 +2471,25 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
     for d in [shards_dir, metrics_dir, dists_dir, ranks_dir, scored_dir, pos_dir]:
         os.makedirs(d, exist_ok=True)
 
-    # 1) split predictions into per-tile shards
-    _ = _split_predictions_to_shards(pred_csv, shards_dir)
+    # 1) Use existing per-tile shards if available to avoid a full split of the
+    #    merged predictions.csv. Fallback to splitting when shards are missing.
+    tile_preds_dir = os.path.join(round_dir, '_tile_preds')
+    use_existing_shards = os.path.isdir(tile_preds_dir) and any(
+        name.endswith('.csv') for name in os.listdir(tile_preds_dir)
+    )
+    if use_existing_shards:
+        # We'll read shards directly from _tile_preds/*.csv (header differs but
+        # is handled downstream). No need to populate tmp shards_dir.
+        tile_files = _list_csvs(tile_preds_dir)
+    else:
+        _ = _split_predictions_to_shards(pred_csv, shards_dir)
+        tile_files = _list_csvs(shards_dir)
 
     # 2) per-tile metrics and positives
     from progress_utils import new_progress as _npb
     with _npb() as prog_metrics:
         task_metrics = prog_metrics.add_task("Per-tile metrics", total=0)
-        prog_metrics.update(task_metrics, total=len(_list_csvs(shards_dir)))
+        prog_metrics.update(task_metrics, total=len(tile_files))
 
         def per_tile(tile_file):
             base = os.path.basename(tile_file)
@@ -1742,39 +2535,75 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                 pr = np.asarray(chunk_p, dtype=np.float32)
                 nd = np.asarray(chunk_nd, dtype=np.float32)
                 total_rows += rr.size
-                # distances
-                if has_train:
-                    feats = arr[:, rr, cc].transpose(1, 0).astype(np.float32)
-                    valid = ~np.isnan(feats).any(axis=1)
-                    if not np.all(valid):
-                        rr, cc, la, lo, pr, nd, feats = (
-                            rr[valid], cc[valid], la[valid], lo[valid], pr[valid], nd[valid], feats[valid]
+                # Improve memory locality: process in row-major order before feature gather
+                if rr.size:
+                    try:
+                        order_loc = np.lexsort((cc, rr))
+                        rr, cc, la, lo, pr, nd = (
+                            rr[order_loc], cc[order_loc], la[order_loc], lo[order_loc], pr[order_loc], nd[order_loc]
                         )
-                    feats_s = (feats - feat_means) / (feat_std + 1e-6)
-                    dists = _query_dists(feats_s)
-                else:
-                    dists = np.zeros((rr.shape[0],), dtype=np.float32)
-                # Write sorted dists as a part file for this chunk
-                order = np.argsort(dists)
-                dp_part = os.path.join(dists_dir, f"{base_core}_dists.part{part_idx}.csv.gz")
-                with _open_text_auto(dp_part, 'wt') as fd:
-                    w = csv.writer(fd)
-                    w.writerow(['tile','row','col','dist'])
-                    for j in order:
-                        w.writerow([tile_name, int(rr[j]), int(cc[j]), float(dists[j])])
-                dists_parts.append(dp_part)
+                    except Exception:
+                        pass
+                # distances (Highscore only)
+                if hs_on:
+                    if has_train:
+                        feats = arr[:, rr, cc].transpose(1, 0).astype(np.float32)
+                        valid = ~np.isnan(feats).any(axis=1)
+                        if not np.all(valid):
+                            rr, cc, la, lo, pr, nd, feats = (
+                                rr[valid], cc[valid], la[valid], lo[valid], pr[valid], nd[valid], feats[valid]
+                            )
+                        feats_s = (feats - feat_means) / (feat_std + 1e-6)
+                        dists = _query_dists(feats_s)
+                    else:
+                        dists = np.zeros((rr.shape[0],), dtype=np.float32)
+                    # Write sorted dists as a part file for this chunk
+                    order = np.argsort(dists)
+                    dp_part = os.path.join(dists_dir, f"{base_core}_dists.part{part_idx}.csv.gz")
+                    with _open_text_auto(dp_part, 'wt') as fd:
+                        w = csv.writer(fd)
+                        w.writerow(['tile','row','col','dist'])
+                        for j in order:
+                            w.writerow([tile_name, int(rr[j]), int(cc[j]), float(dists[j])])
+                    # Sidecar .npy for faster merge (row,col,dist)
+                    try:
+                        arr_side = np.vstack([
+                            rr[order].astype(np.int32),
+                            cc[order].astype(np.int32),
+                            dists[order].astype(np.float32)
+                        ]).T
+                        npy_part = dp_part[:-7] + '.npy' if dp_part.endswith('.csv.gz') else dp_part[:-4] + '.npy'
+                        np.save(npy_part, arr_side)
+                    except Exception:
+                        pass
+                    dists_parts.append(dp_part)
                 # Positives sorted by prob desc for this chunk
-                idx_pos = np.where(pr >= cfg.MIN_AGRI_PROB)[0]
-                if idx_pos.size:
-                    pos_count += int(idx_pos.size)
-                    orderp = idx_pos[np.argsort(pr[idx_pos])[::-1]]
-                    pp_part = os.path.join(pos_dir, f"{base_core}_pos.part{part_idx}.csv.gz")
-                    with _open_text_auto(pp_part, 'wt') as fp:
-                        w = csv.writer(fp)
-                        w.writerow(['tile','row','col','lat','lon','prob','ndvi'])
-                        for j in orderp:
-                            w.writerow([tile_name, int(rr[j]), int(cc[j]), float(la[j]), float(lo[j]), float(pr[j]), float(nd[j])])
-                    pos_parts.append(pp_part)
+                if pa_on:
+                    idx_pos = np.where(pr >= cfg.MIN_AGRI_PROB)[0]
+                    if idx_pos.size:
+                        pos_count += int(idx_pos.size)
+                        orderp = idx_pos[np.argsort(pr[idx_pos])[::-1]]
+                        pp_part = os.path.join(pos_dir, f"{base_core}_pos.part{part_idx}.csv.gz")
+                        with _open_text_auto(pp_part, 'wt') as fp:
+                            w = csv.writer(fp)
+                            w.writerow(['tile','row','col','lat','lon','prob','ndvi'])
+                            for j in orderp:
+                                w.writerow([tile_name, int(rr[j]), int(cc[j]), float(la[j]), float(lo[j]), float(pr[j]), float(nd[j])])
+                        # Sidecar .npy (row,col,lat,lon,prob,ndvi) sorted by prob desc
+                        try:
+                            arrp = np.vstack([
+                                rr[orderp].astype(np.int32),
+                                cc[orderp].astype(np.int32),
+                                la[orderp].astype(np.float32),
+                                lo[orderp].astype(np.float32),
+                                pr[orderp].astype(np.float32),
+                                nd[orderp].astype(np.float32)
+                            ]).T
+                            npy_pp = pp_part[:-7] + '.npy' if pp_part.endswith('.csv.gz') else pp_part[:-4] + '.npy'
+                            np.save(npy_pp, arrp)
+                        except Exception:
+                            pass
+                        pos_parts.append(pp_part)
                 # reset chunk
                 chunk_r.clear(); chunk_c.clear(); chunk_la.clear(); chunk_lo.clear(); chunk_p.clear(); chunk_nd.clear()
                 return part_idx + 1
@@ -1783,11 +2612,24 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             CHUNK = int(getattr(cfg, 'REFRESH_CHUNK_ROWS', 200000))
             with _open_text_auto(tile_file, 'rt') as f:
                 rd = csv.DictReader(f)
+                flds = [x.strip().lower() for x in (rd.fieldnames or [])]
+                # Support both shard header formats:
+                #  - shards: row,col,lat,lon,prob,ndvi
+                #  - tile-preds: tile,row_idx,col_idx,center_lat,center_lon,predicted_prob,ndvi
+                has_shard = all(k in flds for k in ['row','col','lat','lon','prob'])
+                has_tilepred = all(k in flds for k in ['row_idx','col_idx','center_lat','center_lon','predicted_prob'])
                 for r in rd:
                     try:
-                        ri = int(r['row']); ci = int(r['col'])
-                        la = float(r['lat']); lo = float(r['lon'])
-                        p = float(r['prob']); ndv = float(r['ndvi'] or 0.0)
+                        if has_shard:
+                            ri = int(r['row']); ci = int(r['col'])
+                            la = float(r['lat']); lo = float(r['lon'])
+                            p = float(r['prob']); ndv = float(r.get('ndvi') or 0.0)
+                        elif has_tilepred:
+                            ri = int(r['row_idx']); ci = int(r['col_idx'])
+                            la = float(r['center_lat']); lo = float(r['center_lon'])
+                            p = float(r['predicted_prob']); ndv = float(r.get('ndvi') or 0.0)
+                        else:
+                            continue
                     except Exception:
                         continue
                     # skip master labels
@@ -1800,115 +2642,268 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                 # flush remainder
                 part_idx = flush_chunk(part_idx)
 
-            # Merge parts for dists (ascending)
+            # Merge parts for dists (ascending) with optional .npy sidecars
             if dists_parts:
                 import heapq as _hq
+                import numpy as _np
                 dp_final = os.path.join(dists_dir, base_core + '_dists.csv.gz')
+                # Optional sidecar for final dists
+                use_sidecar = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
+                if use_sidecar and total_rows > 0:
+                    try:
+                        dp_side = os.path.join(dists_dir, base_core + '_dists.npy')
+                        # 3 columns: row, col, dist (float32)
+                        mm = _np.memmap(dp_side, dtype=_np.float32, mode='w+', shape=(int(total_rows), 3))
+                        write_idx = 0
+                    except Exception:
+                        mm = None; write_idx = 0; use_sidecar = False
+                else:
+                    mm = None; write_idx = 0
                 with _open_text_auto(dp_final, 'wt') as out:
                     w = csv.writer(out)
                     w.writerow(['tile','row','col','dist'])
-                    readers = []
+                    sources = []
                     for pp in dists_parts:
-                        f = _open_text_auto(pp, 'rt'); r = csv.reader(f); next(r, None)
-                        readers.append((pp, f, r))
-                    heap = []
-                    for idx, (_pp, f, r) in enumerate(readers):
-                        row = next(r, None)
-                        if not row:
-                            continue
-                        try:
-                            d = float(row[3]); rr = int(row[1]); cc = int(row[2]); ti = row[0]
-                        except Exception:
-                            continue
-                        _hq.heappush(heap, (d, ti, rr, cc, idx, row))
-                    while heap:
-                        d, ti, rr, cc, idx, row = _hq.heappop(heap)
-                        w.writerow([ti, rr, cc, d])
-                        _pp, f, r = readers[idx]
-                        row2 = next(r, None)
-                        if row2:
+                        npy_part = pp[:-7] + '.npy' if pp.endswith('.csv.gz') else pp[:-4] + '.npy'
+                        if os.path.exists(npy_part):
                             try:
-                                d2 = float(row2[3]); rr2 = int(row2[1]); cc2 = int(row2[2]); ti2 = row2[0]
+                                arr = _np.load(npy_part)
+                                sources.append({'type': 'npy', 'data': arr, 'pos': 0})
+                                continue
                             except Exception:
-                                row2 = None
+                                pass
+                        f = _open_text_auto(pp, 'rt'); r = csv.reader(f); next(r, None)
+                        sources.append({'type': 'csv', 'file': f, 'reader': r})
+                    heap = []
+                    for i, src in enumerate(sources):
+                        if src['type'] == 'npy':
+                            arr = src['data']
+                            if arr.shape[0] == 0:
+                                continue
+                            rr, cc, d = int(arr[0,0]), int(arr[0,1]), float(arr[0,2])
+                            src['pos'] = 1
+                            _hq.heappush(heap, (d, tile_name, rr, cc, i))
+                        else:
+                            row = next(src['reader'], None)
+                            if not row:
+                                continue
+                            try:
+                                d = float(row[3]); rr = int(row[1]); cc = int(row[2])
+                            except Exception:
+                                continue
+                            _hq.heappush(heap, (d, tile_name, rr, cc, i))
+                    while heap:
+                        d, ti, rr, cc, i = _hq.heappop(heap)
+                        w.writerow([ti, rr, cc, d])
+                        if mm is not None:
+                            try:
+                                mm[write_idx, 0] = float(rr)
+                                mm[write_idx, 1] = float(cc)
+                                mm[write_idx, 2] = float(d)
+                                write_idx += 1
+                            except Exception:
+                                pass
+                        src = sources[i]
+                        if src['type'] == 'npy':
+                            posi = src.get('pos', 0)
+                            arr = src['data']
+                            if posi < arr.shape[0]:
+                                rr2, cc2, d2 = int(arr[posi,0]), int(arr[posi,1]), float(arr[posi,2])
+                                src['pos'] = posi + 1
+                                _hq.heappush(heap, (d2, tile_name, rr2, cc2, i))
+                        else:
+                            row2 = next(src['reader'], None)
                             if row2:
-                                _hq.heappush(heap, (d2, ti2, rr2, cc2, idx, row2))
-                    for _pp, f, _r in readers:
-                        try: f.close()
-                        except Exception: pass
-                # cleanup part files
+                                try:
+                                    d2 = float(row2[3]); rr2 = int(row2[1]); cc2 = int(row2[2])
+                                except Exception:
+                                    row2 = None
+                                if row2:
+                                    _hq.heappush(heap, (d2, tile_name, rr2, cc2, i))
+                    for src in sources:
+                        if src['type'] == 'csv':
+                            try: src['file'].close()
+                            except Exception: pass
+                if mm is not None:
+                    try:
+                        mm.flush(); del mm
+                    except Exception:
+                        pass
+                # cleanup part files (CSV and NPY)
                 for pp in dists_parts:
                     try: os.remove(pp)
                     except Exception: pass
+                    npy_part = pp[:-7] + '.npy' if pp.endswith('.csv.gz') else pp[:-4] + '.npy'
+                    if os.path.exists(npy_part):
+                        try: os.remove(npy_part)
+                        except Exception: pass
 
-            # Merge parts for positives (descending by prob)
+            # Merge parts for positives (descending by prob) with optional .npy sidecars
             if pos_parts:
                 import heapq as _hq
+                import numpy as _np
                 pp_final = os.path.join(pos_dir, base_core + '_pos.csv.gz')
+                # Optional sidecar for final positives
+                use_sidecar2 = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
+                if use_sidecar2 and pos_count > 0:
+                    try:
+                        pp_side = os.path.join(pos_dir, base_core + '_pos.npy')
+                        mm2 = _np.memmap(pp_side, dtype=_np.float32, mode='w+', shape=(int(pos_count), 6))
+                        write_idx2 = 0
+                    except Exception:
+                        mm2 = None; write_idx2 = 0; use_sidecar2 = False
+                else:
+                    mm2 = None; write_idx2 = 0
                 with _open_text_auto(pp_final, 'wt') as out:
                     w = csv.writer(out)
                     w.writerow(['tile','row','col','lat','lon','prob','ndvi'])
-                    readers = []
+                    sources = []
                     for pp in pos_parts:
-                        f = _open_text_auto(pp, 'rt'); r = csv.reader(f); next(r, None)
-                        readers.append((pp, f, r))
-                    heap = []
-                    for idx, (_pp, f, r) in enumerate(readers):
-                        row = next(r, None)
-                        if not row:
-                            continue
-                        try:
-                            pr = float(row[5])
-                        except Exception:
-                            continue
-                        _hq.heappush(heap, (-pr, idx, row))
-                    while heap:
-                        neg, idx, row = _hq.heappop(heap)
-                        w.writerow(row)
-                        _pp, f, r = readers[idx]
-                        row2 = next(r, None)
-                        if row2:
+                        npy_part = pp[:-7] + '.npy' if pp.endswith('.csv.gz') else pp[:-4] + '.npy'
+                        if os.path.exists(npy_part):
                             try:
-                                pr2 = float(row2[5])
+                                arr = _np.load(npy_part)
+                                sources.append({'type':'npy','data':arr,'pos':0})
+                                continue
                             except Exception:
-                                row2 = None
+                                pass
+                        f = _open_text_auto(pp, 'rt'); r = csv.reader(f); next(r, None)
+                        sources.append({'type':'csv','file':f,'reader':r})
+                    heap = []
+                    for i, src in enumerate(sources):
+                        if src['type'] == 'npy':
+                            arr = src['data']
+                            if arr.shape[0] == 0:
+                                continue
+                            rr, cc = int(arr[0,0]), int(arr[0,1])
+                            la, lo = float(arr[0,2]), float(arr[0,3])
+                            pr, nd = float(arr[0,4]), float(arr[0,5])
+                            src['pos'] = 1
+                            _hq.heappush(heap, (-pr, i, (rr, cc, la, lo, pr, nd)))
+                        else:
+                            row = next(src['reader'], None)
+                            if not row:
+                                continue
+                            try:
+                                rr = int(row[1]); cc = int(row[2])
+                                la = float(row[3]); lo = float(row[4])
+                                pr = float(row[5]); nd = float(row[6]) if len(row) > 6 and row[6] != '' else 0.0
+                            except Exception:
+                                continue
+                            _hq.heappush(heap, (-pr, i, (rr, cc, la, lo, pr, nd)))
+                    while heap:
+                        neg, i, tpl = _hq.heappop(heap)
+                        rr, cc, la, lo, pr, nd = tpl
+                        w.writerow([tile_name, rr, cc, la, lo, pr, nd])
+                        if mm2 is not None:
+                            try:
+                                mm2[write_idx2, 0] = float(rr)
+                                mm2[write_idx2, 1] = float(cc)
+                                mm2[write_idx2, 2] = float(la)
+                                mm2[write_idx2, 3] = float(lo)
+                                mm2[write_idx2, 4] = float(pr)
+                                mm2[write_idx2, 5] = float(nd)
+                                write_idx2 += 1
+                            except Exception:
+                                pass
+                        src = sources[i]
+                        if src['type'] == 'npy':
+                            posi = src.get('pos', 0)
+                            arr = src['data']
+                            if posi < arr.shape[0]:
+                                rr2, cc2 = int(arr[posi,0]), int(arr[posi,1])
+                                la2, lo2 = float(arr[posi,2]), float(arr[posi,3])
+                                pr2, nd2 = float(arr[posi,4]), float(arr[posi,5])
+                                src['pos'] = posi + 1
+                                _hq.heappush(heap, (-pr2, i, (rr2, cc2, la2, lo2, pr2, nd2)))
+                        else:
+                            row2 = next(src['reader'], None)
                             if row2:
-                                _hq.heappush(heap, (-pr2, idx, row2))
-                    for _pp, f, _r in readers:
-                        try: f.close()
-                        except Exception: pass
+                                try:
+                                    rr2 = int(row2[1]); cc2 = int(row2[2])
+                                    la2 = float(row2[3]); lo2 = float(row2[4])
+                                    pr2 = float(row2[5]); nd2 = float(row2[6]) if len(row2) > 6 and row2[6] != '' else 0.0
+                                except Exception:
+                                    row2 = None
+                                if row2:
+                                    _hq.heappush(heap, (-pr2, i, (rr2, cc2, la2, lo2, pr2, nd2)))
+                    for src in sources:
+                        if src['type'] == 'csv':
+                            try: src['file'].close()
+                            except Exception: pass
+                if mm2 is not None:
+                    try:
+                        mm2.flush(); del mm2
+                    except Exception:
+                        pass
                 for pp in pos_parts:
                     try: os.remove(pp)
                     except Exception: pass
+                    npy_part = pp[:-7] + '.npy' if pp.endswith('.csv.gz') else pp[:-4] + '.npy'
+                    if os.path.exists(npy_part):
+                        try: os.remove(npy_part)
+                        except Exception: pass
 
             # Done with this tile
             return (tile_name, total_rows, pos_count)
 
-        tile_files = _list_csvs(shards_dir)
-        # Process tiles in a small thread pool; cKDTree handles parallel query via workers.
+        # tile_files already resolved above from either _tile_preds or shards_dir
+        # Process tiles in a process pool to parallelize Python-bound work
         res = []
         max_workers = int(getattr(cfg, 'REFRESH_TILE_THREADS', 2))
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futs = {ex.submit(per_tile, tp): tp for tp in tile_files}
-            for fut in as_completed(futs):
-                try:
-                    res.append(fut.result())
-                except Exception:
-                    # If a tile fails, continue with others; it'll just have zero rows
-                    pass
-                # Update progress when any tile finishes
-                try:
-                    prog_metrics.update(task_metrics, advance=1)
-                except Exception:
-                    pass
+        has_train_flag = bool(has_train)
+        feat_means_local = feat_means if has_train_flag else None
+        feat_std_local = feat_std if has_train_flag else None
+        Xs_local = Xs if has_train_flag else None
+        labeled_list = list(labeled_keys)
+        kd_workers = int(getattr(cfg, 'REFRESH_KD_WORKERS', 1))
+        chunk_rows = int(getattr(cfg, 'REFRESH_CHUNK_ROWS', 200000))
+        min_prob = float(cfg.MIN_AGRI_PROB)
+        # Batch process to limit peak memory
+        pool_batch = int(getattr(cfg, 'REFRESH_PROCESS_POOL_BATCH', 20))
+        for i0 in range(0, len(tile_files), max(1, pool_batch)):
+            batch = tile_files[i0:i0 + max(1, pool_batch)]
+            with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                futs = {
+                    ex.submit(
+                        _per_tile_metrics_worker,
+                        tp,
+                        has_train_flag,
+                        feat_means_local,
+                        feat_std_local,
+                        Xs_local,
+                        labeled_list,
+                        bool(hs_on),
+                        bool(pa_on),
+                        min_prob,
+                        kd_workers,
+                        chunk_rows,
+                        dists_dir,
+                        pos_dir,
+                    ): tp for tp in batch
+                }
+                for fut in as_completed(futs):
+                    try:
+                        res.append(fut.result())
+                    except Exception:
+                        pass
+                    try:
+                        prog_metrics.update(task_metrics, advance=1)
+                    except Exception:
+                        pass
+            # free memory between batches
+            try:
+                free_unused_memory()
+            except Exception:
+                pass
     n_total = sum(n for _t,n,_p in res)
     pos_total = sum(p for _t,_n,p in res)
     if n_total <= 0:
         print("No unlabeled pixels found for global lists update.")
         return
 
-    # 3) global rank for distances via k-way merge
-    dist_files = _list_csvs(dists_dir, suffix='_dists.csv')
+    # 3) global rank for distances via k-way merge (Highscore only)
+    dist_files = _list_csvs(dists_dir, suffix='_dists.csv') if hs_on else []
     # open rank writers per tile
     rank_writers = {}
     rank_files = {}
@@ -1936,10 +2931,36 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
     import heapq
     heap = []
     readers = []
+    use_sidecar_global = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
     for dp in dist_files:
+        if use_sidecar_global:
+            npy = dp[:-7] + '.npy' if dp.endswith('.csv.gz') else dp[:-4] + '.npy'
+        else:
+            npy = None
+        if npy and os.path.exists(npy):
+            try:
+                arr = np.load(npy, mmap_mode='r')
+                # seed first row
+                if arr.shape[0] > 0:
+                    dist = float(arr[0, 2]); rr = int(arr[0, 0]); cc = int(arr[0, 1])
+                    readers.append((dp, ('npy', arr, 1)))
+                    base = os.path.basename(dp)
+                    if base.endswith('.csv.gz'):
+                        core = base[:-7]
+                    elif base.endswith('.csv'):
+                        core = base[:-4]
+                    else:
+                        core = os.path.splitext(base)[0]
+                    if core.endswith('_dists'):
+                        core = core[:-6]
+                    tile_name = core + '.tif'
+                    heapq.heappush(heap, (dist, tile_name, rr, cc, len(readers)-1))
+                    continue
+            except Exception:
+                pass
+        # Fallback to CSV reader
         f = _open_text_auto(dp, 'rt'); r = csv.reader(f); next(r, None)
-        readers.append((dp,f,r))
-        # Advance until a non-empty row is found
+        readers.append((dp, ('csv', f, r)))
         while True:
             try:
                 row = next(r)
@@ -1958,56 +2979,68 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             break
     i = 0
     denom = max(1, n_total-1)
-    with _npb() as _prog:
-        t_rank = _prog.add_task("Global distance rank", total=n_total)
-        while heap:
-            dist, tile, rr, cc, idx = heapq.heappop(heap)
-            rank = i/denom
-            base = os.path.splitext(tile)[0]
-            writer = rank_writers.get(base) or rank_writers.get(tile) or rank_writers.get(base + '.tif')
-            if writer is None:
-                # Lazily create a rank writer for this tile base to avoid key errors
-                rp = os.path.join(ranks_dir, base + '_rank.csv')
-                fh = open(rp, 'w', newline='')
-                w = csv.writer(fh)
-                w.writerow(['row','col','rank'])
-                rank_files[base] = fh
-                # Register common aliases
-                for alias in {base, base + '.tif', os.path.splitext(base)[0], tile}:
-                    rank_writers[alias] = w
-                writer = w
-            writer.writerow([rr, cc, f"{rank:.6f}"])
-            i += 1
-            if i % 50000 == 0:
-                _prog.update(t_rank, completed=i)
-            # pull next from same reader
-            dp, f, r = readers[idx]
-            while True:
-                try:
-                    row = next(r)
-                except StopIteration:
-                    row = None
-                if not row:
-                    if row is None:
+    if hs_on and dist_files:
+        with _npb() as _prog:
+            t_rank = _prog.add_task("Global distance rank", total=n_total)
+            while heap:
+                dist, tile, rr, cc, idx = heapq.heappop(heap)
+                rank = i/denom
+                base = os.path.splitext(tile)[0]
+                writer = rank_writers.get(base) or rank_writers.get(tile) or rank_writers.get(base + '.tif')
+                if writer is None:
+                    # Lazily create a rank writer for this tile base to avoid key errors
+                    rp = os.path.join(ranks_dir, base + '_rank.csv')
+                    fh = open(rp, 'w', newline='')
+                    w = csv.writer(fh)
+                    w.writerow(['row','col','rank'])
+                    rank_files[base] = fh
+                    # Register common aliases
+                    for alias in {base, base + '.tif', os.path.splitext(base)[0], tile}:
+                        rank_writers[alias] = w
+                    writer = w
+                writer.writerow([rr, cc, f"{rank:.6f}"])
+                i += 1
+                if i % 50000 == 0:
+                    _prog.update(t_rank, completed=i)
+                # pull next from same reader
+                dp, info = readers[idx]
+                typ = info[0]
+                if typ == 'npy':
+                    arr, pos = info[1], info[2]
+                    if pos < arr.shape[0]:
+                        dist2 = float(arr[pos, 2]); rr2 = int(arr[pos, 0]); cc2 = int(arr[pos, 1])
+                        readers[idx] = (dp, ('npy', arr, pos+1))
+                        heapq.heappush(heap, (dist2, tile, rr2, cc2, idx))
+                else:
+                    f, r = info[1], info[2]
+                    while True:
+                        try:
+                            row = next(r)
+                        except StopIteration:
+                            row = None
+                        if not row:
+                            if row is None:
+                                break
+                            else:
+                                continue
+                        try:
+                            tile2 = row[0]; rr2=int(row[1]); cc2=int(row[2]); dist2=float(row[3])
+                        except Exception:
+                            continue
+                        heapq.heappush(heap, (dist2, tile2, rr2, cc2, idx))
                         break
-                    else:
-                        continue
-                try:
-                    tile2 = row[0]; rr2=int(row[1]); cc2=int(row[2]); dist2=float(row[3])
-                except Exception:
-                    continue
-                heapq.heappush(heap, (dist2, tile2, rr2, cc2, idx))
-                break
-        _prog.update(t_rank, completed=n_total)
+            _prog.update(t_rank, completed=n_total)
     # close rank files
-    for _, f, _ in readers:
-        try: f.close()
-        except Exception: pass
+    for _, info in readers:
+        if info[0] == 'csv':
+            f = info[1]
+            try: f.close()
+            except Exception: pass
     for f in rank_files.values():
         try: f.close()
         except Exception: pass
 
-    # 4) per-tile score and sort
+    # 4) per-tile score and sort (Highscore only)
     wu = cfg.HIGHSCORE_COMPONENT_WEIGHTS.get("uncertainty", 0.5)
     wr = cfg.HIGHSCORE_COMPONENT_WEIGHTS.get("representativeness", 0.3)
     wc = cfg.HIGHSCORE_COMPONENT_WEIGHTS.get("consistency", 0.2)
@@ -2019,6 +3052,11 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
         sp_csv = os.path.join(shards_dir, tile_base + '.csv')
         sp_gz  = sp_csv + '.gz'
         sp = sp_gz if os.path.exists(sp_gz) else sp_csv
+        # If no temp shard exists (we used _tile_preds directly), read from there
+        if not os.path.exists(sp):
+            alt = os.path.join(round_dir, '_tile_preds', tile_base + '.csv')
+            if os.path.exists(alt):
+                sp = alt
         if not (os.path.exists(sp) and os.path.exists(rp)):
             return None
         # load ranks into dict
@@ -2030,11 +3068,21 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
         rows = []
         with _open_text_auto(sp, 'rt') as f:
             rd = csv.DictReader(f)
+            flds = [x.strip().lower() for x in (rd.fieldnames or [])]
+            has_shard = all(k in flds for k in ['row','col','lat','lon','prob'])
+            has_tilepred = all(k in flds for k in ['row_idx','col_idx','center_lat','center_lon','predicted_prob'])
             for r in rd:
                 try:
-                    rr = int(r['row']); cc = int(r['col'])
-                    la = float(r['lat']); lo = float(r['lon'])
-                    pr = float(r['prob']); nd = float(r['ndvi'] or 0.0)
+                    if has_shard:
+                        rr = int(r['row']); cc = int(r['col'])
+                        la = float(r['lat']); lo = float(r['lon'])
+                        pr = float(r['prob']); nd = float(r.get('ndvi') or 0.0)
+                    elif has_tilepred:
+                        rr = int(r['row_idx']); cc = int(r['col_idx'])
+                        la = float(r['center_lat']); lo = float(r['center_lon'])
+                        pr = float(r['predicted_prob']); nd = float(r.get('ndvi') or 0.0)
+                    else:
+                        continue
                 except Exception:
                     continue
                 R = ranks.get((rr, cc), 0.0)
@@ -2047,6 +3095,19 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             return None
         rows.sort(key=lambda t: t[0], reverse=True)
         outp = os.path.join(scored_dir, tile_base + '_scored.csv.gz')
+        use_sidecar3 = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
+        if use_sidecar3 and rows:
+            try:
+                import numpy as _np
+                # Pre-assemble sidecar array (row,col,lat,lon,prob,ndvi,score)
+                arr = _np.zeros((len(rows), 7), dtype=_np.float32)
+                for i, (sc, tpl) in enumerate(rows):
+                    _, rr, cc, la, lo, pr, nd = tpl
+                    arr[i, :] = [float(rr), float(cc), float(la), float(lo), float(pr), float(nd), float(sc)]
+                npy_scored = os.path.join(scored_dir, tile_base + '_scored.npy')
+                _np.save(npy_scored, arr)
+            except Exception:
+                pass
         with _open_text_auto(outp,'wt') as f:
             w = csv.writer(f)
             w.writerow(['tile','row','col','lat','lon','prob','ndvi','score'])
@@ -2063,39 +3124,85 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             return name[:-4]
         return os.path.splitext(name)[0]
     tile_bases = [_tile_base_from_shard_path(tp) for tp in tile_files]
-    # progress for per-tile scoring
-    _ctx_score = _npb()
-    prog_score = _ctx_score.__enter__()
-    task_score = prog_score.add_task("Per-tile scoring", total=len(tile_bases))
-    def _per_tile_score_wrap(tb):
-        res = per_tile_score(tb)
-        prog_score.update(task_score, advance=1)
-        return res
-    # Parallelize scoring across tiles (I/O bound)
     scored_files = []
-    max_workers = max(2, int(getattr(cfg, 'REFRESH_TILE_THREADS', 3)))
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = [ex.submit(_per_tile_score_wrap, tb) for tb in tile_bases]
-        for fut in as_completed(futs):
+    if hs_on:
+        # progress for per-tile scoring
+        _ctx_score = _npb()
+        prog_score = _ctx_score.__enter__()
+        task_score = prog_score.add_task("Per-tile scoring", total=len(tile_bases))
+        # Parallelize scoring across tiles using processes
+        max_workers = max(2, int(getattr(cfg, 'REFRESH_TILE_THREADS', 3)))
+        wu = cfg.HIGHSCORE_COMPONENT_WEIGHTS.get("uncertainty", 0.5)
+        wr = cfg.HIGHSCORE_COMPONENT_WEIGHTS.get("representativeness", 0.3)
+        wc = cfg.HIGHSCORE_COMPONENT_WEIGHTS.get("consistency", 0.2)
+        unc_delta = float(getattr(cfg, 'UNCERTAINTY_BAND_DELTA', 0.05))
+        pool_batch = int(getattr(cfg, 'REFRESH_PROCESS_POOL_BATCH', 20))
+        for i0 in range(0, len(tile_bases), max(1, pool_batch)):
+            batch = tile_bases[i0:i0 + max(1, pool_batch)]
+            with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                futs = [
+                    ex.submit(
+                        _per_tile_score_worker,
+                        tb,
+                        ranks_dir,
+                        shards_dir,
+                        round_dir,
+                        scored_dir,
+                        float(cfg.MIN_AGRI_PROB),
+                        float(wu), float(wr), float(wc),
+                        unc_delta,
+                    ) for tb in batch
+                ]
+                for fut in as_completed(futs):
+                    try:
+                        pth = fut.result()
+                        if pth:
+                            scored_files.append(pth)
+                    except Exception:
+                        pass
+                    prog_score.update(task_score, advance=1)
             try:
-                scored_files.append(fut.result())
+                free_unused_memory()
             except Exception:
                 pass
-    try:
-        _ctx_score.__exit__(None, None, None)
-    except Exception:
-        pass
-    scored_files = [p for p in scored_files if p]
+        try:
+            _ctx_score.__exit__(None, None, None)
+        except Exception:
+            pass
 
     # 5) k-way merge scored files by score desc to global highscore.csv
     def kmerge_desc(files, out_path, total=None):
         import heapq
+        use_sidecar = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
         hs = []
-        readers = []
+        sources = []  # ('npy', arr, pos, tile) or ('csv', file, reader)
         for fp in files:
+            base = os.path.basename(fp)
+            if base.endswith('.csv.gz'):
+                npy = fp[:-7] + '.npy'
+                core = base[:-7]
+            elif base.endswith('.csv'):
+                npy = fp[:-4] + '.npy'
+                core = base[:-4]
+            else:
+                npy = os.path.splitext(fp)[0] + '.npy'
+                core = os.path.splitext(base)[0]
+            # derive tile name from core by removing trailing suffixes
+            core2 = core.replace('_scored', '')
+            tile_name = core2 + '.tif'
+            if use_sidecar and os.path.exists(npy):
+                try:
+                    arr = np.load(npy, mmap_mode='r')
+                    if arr.shape[0] > 0:
+                        rr, cc, la, lo, pr, nd, sc = [arr[0, i] for i in range(7)]
+                        sources.append(('npy', arr, 1, tile_name))
+                        heapq.heappush(hs, (-float(sc), (tile_name, int(rr), int(cc), float(la), float(lo), float(pr), float(nd), float(sc)), len(sources)-1))
+                        continue
+                except Exception:
+                    pass
+            # fallback to CSV
             f = _open_text_auto(fp, 'rt'); r = csv.reader(f); next(r, None)
-            readers.append((fp,f,r))
-            # Advance until a non-empty row is found
+            sources.append(('csv', f, r))
             while True:
                 try:
                     row = next(r)
@@ -2110,7 +3217,7 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                     sc = float(row[7])
                 except Exception:
                     continue
-                heapq.heappush(hs, (-sc, row, len(readers)-1))
+                heapq.heappush(hs, (-sc, row, len(sources)-1))
                 break
         from progress_utils import new_progress as _npb2
         with open(out_path,'w',newline='') as out, _npb2() as _prog2:
@@ -2119,61 +3226,133 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             count = 0
             while hs:
                 neg, row, idx = heapq.heappop(hs)
-                w.writerow(row)
+                if isinstance(row, (list, tuple)) and isinstance(row[0], str) and len(row) == 8:
+                    # row from npy path already assembled
+                    w.writerow(row)
+                else:
+                    w.writerow(row)
                 count += 1
-                if total:
-                    if count % 50000 == 0:
-                        _prog2.update(t_hs, completed=count)
-                fp, f, r = readers[idx]
-                # Pull next non-empty row
-                while True:
-                    try:
-                        row2 = next(r)
-                    except StopIteration:
-                        row2 = None
-                    if not row2:
-                        if row2 is None:
-                            break
-                        else:
+                if total and count % 50000 == 0:
+                    _prog2.update(t_hs, completed=count)
+                src = sources[idx]
+                if src[0] == 'npy':
+                    arr, pos, tile_name = src[1], src[2], src[3]
+                    if pos < arr.shape[0]:
+                        rr, cc, la, lo, pr, nd, sc2 = [arr[pos, i] for i in range(7)]
+                        sources[idx] = ('npy', arr, pos+1, tile_name)
+                        heapq.heappush(hs, (-float(sc2), (tile_name, int(rr), int(cc), float(la), float(lo), float(pr), float(nd), float(sc2)), idx))
+                else:
+                    f, r = src[1], src[2]
+                    while True:
+                        try:
+                            row2 = next(r)
+                        except StopIteration:
+                            row2 = None
+                        if not row2:
+                            if row2 is None:
+                                break
+                            else:
+                                continue
+                        try:
+                            sc2 = float(row2[7])
+                        except Exception:
                             continue
-                    try:
-                        sc2 = float(row2[7])
-                    except Exception:
-                        continue
-                    heapq.heappush(hs, (-sc2, row2, idx))
-                    break
+                        heapq.heappush(hs, (-sc2, row2, idx))
+                        break
             if total:
                 _prog2.update(t_hs, completed=total)
-        for _, f, _ in readers:
-            try: f.close()
-            except Exception: pass
+        # close csv files
+        for src in sources:
+            if src[0] == 'csv':
+                try: src[1].close()
+                except Exception: pass
 
-    hs_out = cfg.HIGHSCORE_FILE
-    os.makedirs(os.path.dirname(hs_out), exist_ok=True)
-    kmerge_desc(scored_files, hs_out, total=n_total)
-    # global KML limited
-    try:
-        with open(hs_out) as f:
-            rd = csv.DictReader(f)
-            rows = list(rd)
+    if hs_on:
+        hs_out = cfg.HIGHSCORE_FILE
+        os.makedirs(os.path.dirname(hs_out), exist_ok=True)
+        # Two-level parallel merge for highscore
+        group_max = max(2, int(getattr(cfg, 'REFRESH_TILE_THREADS', 3)))
+        if len(scored_files) > group_max:
+            tmp_merge_dir = os.path.join(scored_dir, '_merge_tmp')
+            os.makedirs(tmp_merge_dir, exist_ok=True)
+            groups = [[] for _ in range(group_max)]
+            for idx, fp in enumerate(scored_files):
+                groups[idx % group_max].append(fp)
+            inter_files = []
+            with ProcessPoolExecutor(max_workers=group_max) as ex:
+                futs = {}
+                for gi, g in enumerate(groups):
+                    if not g:
+                        continue
+                    outg = os.path.join(tmp_merge_dir, f'group_{gi}_scored.csv')
+                    futs[ex.submit(_merge_scored_files, g, outg, None)] = outg
+                for fut in as_completed(futs):
+                    try:
+                        inter_files.append(futs[fut])
+                    except Exception:
+                        pass
+            _merge_scored_files(inter_files, hs_out, total=n_total)
+            for p in inter_files:
+                try: os.remove(p)
+                except Exception: pass
+        else:
+            kmerge_desc(scored_files, hs_out, total=n_total)
+        # global KML limited (stream only top-K rows to avoid large RAM)
         try:
-            topk = int(getattr(cfg, 'HIGHSCORE_KML_TOP_PIXELS', 50000))
-        except Exception:
-            topk = 50000
-        _write_ranked_pixel_kml(rows, cfg.HIGHSCORE_KML_GLOBAL, weight_key='score', top_k=topk)
-    except Exception as e:
-        print(f"Highscore KML failed: {e}")
+            try:
+                topk = int(getattr(cfg, 'HIGHSCORE_KML_TOP_PIXELS', 50000))
+            except Exception:
+                topk = 50000
+            rows_small = []
+            with open(hs_out) as f:
+                rd = csv.DictReader(f)
+                if topk and topk > 0:
+                    for i, r in enumerate(rd):
+                        rows_small.append(r)
+                        if len(rows_small) >= topk:
+                            break
+                else:
+                    # no cap; still stream to avoid list(rd)
+                    for r in rd:
+                        rows_small.append(r)
+            _write_ranked_pixel_kml(rows_small, cfg.HIGHSCORE_KML_GLOBAL, weight_key='score', top_k=topk)
+        except Exception as e:
+            print(f"Highscore KML failed: {e}")
 
     # 6) k-way merge positive shards by prob desc to global probableAgri.csv
     pos_files = _list_csvs(pos_dir, suffix='_pos.csv')
     def kmerge_pos(files, out_path, total=None):
         import heapq
+        use_sidecar = bool(getattr(cfg, 'BINARY_SIDECARS_ENABLED', False))
         hs = []
-        readers = []
+        sources = []  # ('npy', arr, pos, tile) or ('csv', file, reader)
         for fp in files:
+            base = os.path.basename(fp)
+            if base.endswith('.csv.gz'):
+                npy = fp[:-7] + '.npy'
+                core = base[:-7]
+            elif base.endswith('.csv'):
+                npy = fp[:-4] + '.npy'
+                core = base[:-4]
+            else:
+                npy = os.path.splitext(fp)[0] + '.npy'
+                core = os.path.splitext(base)[0]
+            core2 = core.replace('_pos', '')
+            tile_name = core2 + '.tif'
+            if use_sidecar and os.path.exists(npy):
+                try:
+                    arr = np.load(npy, mmap_mode='r')
+                    if arr.shape[0] > 0:
+                        rr, cc = int(arr[0,0]), int(arr[0,1])
+                        la, lo = float(arr[0,2]), float(arr[0,3])
+                        pr, nd = float(arr[0,4]), float(arr[0,5])
+                        sources.append(('npy', arr, 1, tile_name))
+                        heapq.heappush(hs, (-pr, (tile_name, rr, cc, la, lo, pr, nd), len(sources)-1))
+                        continue
+                except Exception:
+                    pass
             f = _open_text_auto(fp, 'rt'); r = csv.reader(f); next(r, None)
-            readers.append((fp,f,r))
-            # Advance until a non-empty row is found
+            sources.append(('csv', f, r))
             while True:
                 try:
                     row = next(r)
@@ -2188,7 +3367,7 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                     pr = float(row[5])
                 except Exception:
                     continue
-                heapq.heappush(hs, (-pr, row, len(readers)-1))
+                heapq.heappush(hs, (-pr, row, len(sources)-1))
                 break
         from progress_utils import new_progress as _npb3
         with open(out_path,'w',newline='') as out, _npb3() as _prog3:
@@ -2197,47 +3376,110 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             count = 0
             while hs:
                 neg, row, idx = heapq.heappop(hs)
-                w.writerow(row)
+                if isinstance(row, (list, tuple)) and isinstance(row[0], str):
+                    w.writerow(row)
+                else:
+                    w.writerow(row)
                 count += 1
                 if total and count % 50000 == 0:
                     _prog3.update(t_pa, completed=count)
-                fp, f, r = readers[idx]
-                # Pull next non-empty row
-                while True:
-                    try:
-                        row2 = next(r)
-                    except StopIteration:
-                        row2 = None
-                    if not row2:
-                        if row2 is None:
-                            break
-                        else:
+                src = sources[idx]
+                if src[0] == 'npy':
+                    arr, pos, tile_name = src[1], src[2], src[3]
+                    if pos < arr.shape[0]:
+                        rr, cc = int(arr[pos,0]), int(arr[pos,1])
+                        la, lo = float(arr[pos,2]), float(arr[pos,3])
+                        pr2, nd2 = float(arr[pos,4]), float(arr[pos,5])
+                        sources[idx] = ('npy', arr, pos+1, tile_name)
+                        heapq.heappush(hs, (-pr2, (tile_name, rr, cc, la, lo, pr2, nd2), idx))
+                else:
+                    f, r = src[1], src[2]
+                    while True:
+                        try:
+                            row2 = next(r)
+                        except StopIteration:
+                            row2 = None
+                        if not row2:
+                            if row2 is None:
+                                break
+                            else:
+                                continue
+                        try:
+                            pr2 = float(row2[5])
+                        except Exception:
                             continue
-                    try:
-                        pr2 = float(row2[5])
-                    except Exception:
-                        continue
-                    heapq.heappush(hs, (-pr2, row2, idx))
-                    break
+                        heapq.heappush(hs, (-pr2, row2, idx))
+                        break
             if total:
                 _prog3.update(t_pa, completed=total)
-        for _, f, _ in readers:
-            try: f.close()
-            except Exception: pass
+        for src in sources:
+            if src[0] == 'csv':
+                try: src[1].close()
+                except Exception: pass
 
-    pa_out = cfg.PROBABLE_AGRI_FILE
-    kmerge_pos(pos_files, pa_out, total=pos_total)
-    try:
-        with open(pa_out) as f:
-            rd = csv.DictReader(f)
-            rows = list(rd)
+    if pa_on:
+        pa_out = cfg.PROBABLE_AGRI_FILE
+        # Two-level parallel merge for probable agri
+        group_max = max(2, int(getattr(cfg, 'REFRESH_TILE_THREADS', 3)))
+        if len(pos_files) > group_max:
+            tmp_merge_dir = os.path.join(pos_dir, '_merge_tmp')
+            os.makedirs(tmp_merge_dir, exist_ok=True)
+            groups = [[] for _ in range(group_max)]
+            for idx, fp in enumerate(pos_files):
+                groups[idx % group_max].append(fp)
+            inter_files = []
+            with ProcessPoolExecutor(max_workers=group_max) as ex:
+                futs = {}
+                for gi, g in enumerate(groups):
+                    if not g:
+                        continue
+                    outg = os.path.join(tmp_merge_dir, f'group_{gi}_pos.csv')
+                    futs[ex.submit(_merge_pos_files, g, outg, None)] = outg
+                for fut in as_completed(futs):
+                    try:
+                        inter_files.append(futs[fut])
+                    except Exception:
+                        pass
+            _merge_pos_files(inter_files, pa_out, total=pos_total)
+            for p in inter_files:
+                try: os.remove(p)
+                except Exception: pass
+        else:
+            kmerge_pos(pos_files, pa_out, total=pos_total)
         try:
-            topk_pa = int(getattr(cfg, 'PROBABLE_AGRI_KML_TOP_PIXELS', 50000))
-        except Exception:
-            topk_pa = 50000
-        _write_ranked_pixel_kml(rows, cfg.PROBABLE_AGRI_KML_GLOBAL, weight_key='prob', top_k=topk_pa)
-    except Exception as e:
-        print(f"ProbableAgri KML failed: {e}")
+            try:
+                topk_pa = int(getattr(cfg, 'PROBABLE_AGRI_KML_TOP_PIXELS', 50000))
+            except Exception:
+                topk_pa = 50000
+            rows_small = []
+            with open(pa_out) as f:
+                rd = csv.DictReader(f)
+                if topk_pa and topk_pa > 0:
+                    for i, r in enumerate(rd):
+                        rows_small.append(r)
+                        if len(rows_small) >= topk_pa:
+                            break
+                else:
+                    for r in rd:
+                        rows_small.append(r)
+            _write_ranked_pixel_kml(rows_small, cfg.PROBABLE_AGRI_KML_GLOBAL, weight_key='prob', top_k=topk_pa)
+        except Exception as e:
+            print(f"ProbableAgri KML failed: {e}")
+
+    # Final cleanup: remove heavy per-round caches no longer needed after refresh
+    # - `_global_refresh/` holds temporary shards/metrics for the refresh process
+    # - `_tile_preds/` holds per-tile prediction shards (used as a speed-up). After
+    #   lists/KML are generated, these can be safely removed to save disk space;
+    #   future refreshes will fall back to re-splitting `predictions.csv` if needed.
+    try:
+        import shutil as _shutil
+        for sub in ['_global_refresh', '_tile_preds']:
+            p = os.path.join(round_dir, sub)
+            if os.path.isdir(p):
+                _shutil.rmtree(p, ignore_errors=True)
+                print(f"Removed cache folder => {p}")
+    except Exception as _e:
+        print(f"Round cache cleanup warning: {_e}")
 
 def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None, X_train=None, y_train=None):
     """Load predictions from CSV and prompt the user to label candidates."""
@@ -2275,6 +3517,8 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
     ndvi_vals_for_pr = []
     file_size = os.path.getsize(pred_csv) if os.path.exists(pred_csv) else 0
     from progress_utils import new_progress as _npb
+    import numpy as _np
+    CHUNK = int(getattr(cfg, 'PREDICTIONS_CSV_CHUNK_ROWS', 500_000))
     with open(pred_csv, "r", encoding='utf-8', errors='replace') as pf, _npb() as _prog:
         task = _prog.add_task("Scan predictions.csv", total=file_size or None)
         processed = 0
@@ -2282,51 +3526,129 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
         processed += len(header.encode('utf-8','replace'))
         if file_size:
             _prog.update(task, completed=processed)
+        # Determine header indices
+        hdr = next(csv.reader([header])) if header else []
+        try:
+            IDX_TILE = hdr.index('tile'); IDX_R = hdr.index('row_idx'); IDX_C = hdr.index('col_idx')
+            IDX_LAT = hdr.index('center_lat'); IDX_LON = hdr.index('center_lon'); IDX_P = hdr.index('predicted_prob')
+            IDX_ND = hdr.index('ndvi') if 'ndvi' in hdr else None
+        except Exception:
+            IDX_TILE, IDX_R, IDX_C, IDX_LAT, IDX_LON, IDX_P, IDX_ND = 0,1,2,3,4,5,6
+
+        # Buffers for chunk
+        buf_tile = []
+        buf_r = []
+        buf_c = []
+        buf_la = []
+        buf_lo = []
+        buf_p = []
+        buf_nd = []
+
+        def flush_chunk():
+            nonlocal buf_tile, buf_r, buf_c, buf_la, buf_lo, buf_p, buf_nd
+            if not buf_p:
+                return
+            # Convert to arrays
+            T = buf_tile
+            R = _np.asarray(buf_r, dtype=_np.int32)
+            Cc = _np.asarray(buf_c, dtype=_np.int32)
+            La = _np.asarray(buf_la, dtype=_np.float32)
+            Lo = _np.asarray(buf_lo, dtype=_np.float32)
+            P = _np.asarray(buf_p, dtype=_np.float32)
+            ND = _np.asarray(buf_nd, dtype=_np.float32) if buf_nd else _np.zeros_like(P)
+
+            # Uncertainty pool: consider only p >= CANDIDATE_PROB_LOWER
+            mask_unc = (P >= float(cfg.CANDIDATE_PROB_LOWER))
+            if mask_unc.any():
+                keys = -_np.abs(P[mask_unc] - 0.5)
+                # Keep top-K from this chunk only (K = pool_size)
+                k = int(pool_size)
+                if k > 0 and keys.size > k:
+                    idx_local = _np.argpartition(keys, -k)[-k:]
+                else:
+                    idx_local = _np.arange(keys.size)
+                # Map back to original indices
+                sel_idx = _np.flatnonzero(mask_unc)[idx_local]
+                for j in sel_idx:
+                    # skip globally skipped pixels
+                    if skipped and f"{T[j]}:{int(R[j])}:{int(Cc[j])}" in skipped:
+                        continue
+                    item = [T[j], int(R[j]), int(Cc[j]), float(La[j]), float(Lo[j]), float(P[j]), float(ND[j])]
+                    key = -abs(item[5] - 0.5)
+                    if len(heap) < pool_size:
+                        heapq.heappush(heap, (key, item))
+                    else:
+                        if key > heap[0][0]:
+                            heapq.heapreplace(heap, (key, item))
+
+            # Negative-like pool (prob window + NDVI range)
+            if pool_neg > 0:
+                if ndvi_rel:
+                    # Collect NDVI values for percentile computation later (all rows in chunk)
+                    ndvi_vals_for_pr.extend([float(x) for x in ND.tolist()])
+                is_neg_prob = (P >= nlo) & (P < nhi)
+                is_neg_ndvi = _np.ones_like(is_neg_prob, dtype=bool)
+                if isinstance(ndvi_abs, (list, tuple)) and ndvi_abs[0] is not None and ndvi_abs[1] is not None:
+                    is_neg_ndvi = (ND >= float(ndvi_abs[0])) & (ND <= float(ndvi_abs[1]))
+                mask_neg = is_neg_prob & is_neg_ndvi
+                if mask_neg.any():
+                    # closer to threshold (higher p) preferred ⇒ key = p
+                    keysn = P[mask_neg]
+                    k2 = int(pool_neg)
+                    if k2 > 0 and keysn.size > k2:
+                        idx_local2 = _np.argpartition(keysn, -k2)[-k2:]
+                    else:
+                        idx_local2 = _np.arange(keysn.size)
+                    sel_idx2 = _np.flatnonzero(mask_neg)[idx_local2]
+                    for j in sel_idx2:
+                        if skipped and f"{T[j]}:{int(R[j])}:{int(Cc[j])}" in skipped:
+                            continue
+                        item = [T[j], int(R[j]), int(Cc[j]), float(La[j]), float(Lo[j]), float(P[j]), float(ND[j])]
+                        keyn = item[5]
+                        if len(heap_neg) < pool_neg:
+                            heapq.heappush(heap_neg, (keyn, item))
+                        else:
+                            if keyn > heap_neg[0][0]:
+                                heapq.heapreplace(heap_neg, (keyn, item))
+
+            # reset buffers
+            buf_tile = []
+            buf_r = []
+            buf_c = []
+            buf_la = []
+            buf_lo = []
+            buf_p = []
+            buf_nd = []
+
+        # Stream lines into chunk buffers
+        count = 0
         for line in pf:
             processed += len(line.encode('utf-8','replace'))
-            row = line.strip().split(',')
-            if len(row) < 6:
+            parts = line.rstrip('\n').split(',')
+            if len(parts) <= max(IDX_TILE, IDX_R, IDX_C, IDX_LAT, IDX_LON, IDX_P):
+                if file_size and processed % (1024*1024) < 1000:
+                    _prog.update(task, completed=min(processed, file_size))
                 continue
             try:
-                p = float(row[5])
+                t0 = parts[IDX_TILE]
+                r0 = int(parts[IDX_R]); c0 = int(parts[IDX_C])
+                la0 = float(parts[IDX_LAT]); lo0 = float(parts[IDX_LON])
+                p0 = float(parts[IDX_P]) if parts[IDX_P] != '' else 0.5
+                nd0 = float(parts[IDX_ND]) if (IDX_ND is not None and len(parts) > IDX_ND and parts[IDX_ND] != '') else 0.0
             except Exception:
-                p = 0.5
-            # Parse common fields
-            try:
-                t0 = row[0]; r0 = int(row[1]); c0 = int(row[2])
-                if skipped and f"{t0}:{r0}:{c0}" in skipped:
-                    continue
-                item = [t0, r0, c0,
-                        float(row[3]), float(row[4]), p,
-                        float(row[6]) if len(row) > 6 and row[6] != '' else 0.0]
-            except Exception:
+                if file_size and processed % (1024*1024) < 1000:
+                    _prog.update(task, completed=min(processed, file_size))
                 continue
-            # Fill uncertainty pool (respecting CANDIDATE_PROB_LOWER)
-            if p >= cfg.CANDIDATE_PROB_LOWER:
-                key = -abs(p - 0.5)
-                if len(heap) < pool_size:
-                    heapq.heappush(heap, (key, item))
-                else:
-                    if key > heap[0][0]:
-                        heapq.heapreplace(heap, (key, item))
-            # Fill negative-like pool regardless of CANDIDATE_PROB_LOWER
-            if pool_neg > 0:
-                nd = item[6]
-                if ndvi_rel:
-                    ndvi_vals_for_pr.append(nd)
-                is_neg_prob = (nlo <= p < nhi)
-                is_neg_ndvi = True
-                if isinstance(ndvi_abs, (list, tuple)) and ndvi_abs[0] is not None and ndvi_abs[1] is not None:
-                    is_neg_ndvi = (ndvi_abs[0] <= nd <= ndvi_abs[1])
-                if is_neg_prob and is_neg_ndvi:
-                    keyn = p  # closer to threshold (higher p) preferred
-                    if len(heap_neg) < pool_neg:
-                        heapq.heappush(heap_neg, (keyn, item))
-                    else:
-                        if keyn > heap_neg[0][0]:
-                            heapq.heapreplace(heap_neg, (keyn, item))
+            # buffer
+            buf_tile.append(t0); buf_r.append(r0); buf_c.append(c0); buf_la.append(la0); buf_lo.append(lo0); buf_p.append(p0); buf_nd.append(nd0)
+            count += 1
+            if count >= CHUNK:
+                flush_chunk()
+                count = 0
             if file_size and processed % (1024*1024) < 1000:
                 _prog.update(task, completed=min(processed, file_size))
+        # flush remainder
+        flush_chunk()
         if file_size:
             _prog.update(task, completed=file_size)
     # If NDVI relative mode, refine negative pool by NDVI percentiles

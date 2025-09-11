@@ -21,12 +21,15 @@ LABELS_KML = os.path.join(LABELS_DIR, "labels.kml")
 CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
 GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
 # Persistent informative pixel sets
-# Toggle: enable or disable generation/use of Highscore and ProbableAgri lists
-PERSISTENT_LISTS_ENABLED = True  # Set to False to disable all related processes
+# Split control: independent toggles for Highscore vs ProbableAgri
+HIGHSCORE_LIST_ENABLED = True       # default ON
+PROBABLE_AGRI_LIST_ENABLED = False  # default OFF
 HIGHSCORE_FILE = os.path.join(LABELS_DIR, "highscore.csv")
 PROBABLE_AGRI_FILE = os.path.join(LABELS_DIR, "probableAgri.csv")
 HIGHSCORE_KML_GLOBAL = os.path.join(LABELS_DIR, "highscore_top.kml")
 PROBABLE_AGRI_KML_GLOBAL = os.path.join(LABELS_DIR, "probableAgri_top.kml")
+# Backward-compat alias (deprecated): treated as "any list enabled"
+PERSISTENT_LISTS_ENABLED = HIGHSCORE_LIST_ENABLED or PROBABLE_AGRI_LIST_ENABLED
 FINAL_LABELS_FILE = os.path.join(LABELS_DIR, "finalLabels.csv")
 SKIPPED_PIXELS_FILE = os.path.join(LABELS_DIR, "skipped.csv")
 if not os.path.exists(GRID_KML_DIR):
@@ -126,8 +129,8 @@ HIGHSCORE_TOP_K = 0            # 0 or less => no size limit; otherwise keep top-
 HIGHSCORE_COMPONENT_WEIGHTS = {"uncertainty": 0.5, "representativeness": 0.3, "consistency": 0.2}  # sum≈1
 PROBABLE_AGRI_TOP_K = 0        # 0 or less => no size limit; otherwise keep top-K probable-agri pixels
 PROBABLE_AGRI_COMPONENT_WEIGHTS = {"confidence": 0.7, "representativeness": 0.3}
-HIGHSCORE_KML_TOP_PIXELS = 50000        # Cap per-pixel KML to avoid huge files (0 disables cap)
-PROBABLE_AGRI_KML_TOP_PIXELS = 50000    # Cap per-pixel KML to avoid huge files (0 disables cap)
+HIGHSCORE_KML_TOP_PIXELS = 10000       # Cap per-pixel KML to avoid huge files (0 disables cap)
+PROBABLE_AGRI_KML_TOP_PIXELS = 10000    # Cap per-pixel KML to avoid huge files (0 disables cap)
 
 # Model training
 RESNET_EPOCHS = 10       # 5–20 typical
@@ -137,10 +140,10 @@ MIN_AGRI_PROB = 0.35      # Decision threshold (Orange ≥ this). Ensure CANDIDA
 
 # Inference performance
 INFER_CHUNKING_ENABLED = True          # Improves stability on large tiles; no effect on results
-INFER_MAX_PIXELS_PER_BATCH = 1_500_000   # 100k–500k typical; adjust to RAM
+INFER_MAX_PIXELS_PER_BATCH = 1_000_000     # Smaller batches to reduce peak RAM
 FEATURE_CACHE_ENABLED = True           # Cache derived features per tile to disk
 FEATURE_CACHE_DIR = os.path.join(DATA_DIR, "cache")
-FEATURE_CACHE_MAX_TILES_IN_MEMORY = 10   # LRU bound to avoid RAM blow-outs
+FEATURE_CACHE_MAX_TILES_IN_MEMORY = 8    # Keep at most 2 tiles in memory to cap usage
 
 # Feature selection & importance
 FEATURE_SET = "base"  # one of: base, temporal_only, textures_only, temporal_textures, full
@@ -184,19 +187,44 @@ NOTE_OPTIONS = [
 # --------------------------
 # Inference batch tuning per model (overrides are clamped by INFER_MAX_PIXELS_PER_BATCH)
 AUTO_BATCH_TUNING_ENABLED = True
-INFER_BATCH_OVERRIDE_SVM = 1_500_000
+INFER_BATCH_OVERRIDE_SVM = 1_000_000
 INFER_BATCH_OVERRIDE_RANDOMFOREST = 400_000
 INFER_BATCH_OVERRIDE_XGBOOST = 500_000
 INFER_BATCH_OVERRIDE_RESNET = 200_000
-INFER_TILE_THREADS = 10        # Number of tiles processed in parallel during inference
+INFER_TILE_THREADS = 12         # Fewer concurrent tiles to prevent RAM spikes
 
 # Refresh/per-tile metrics optimization
-REFRESH_CHUNK_ROWS = 300_000        # Rows per chunk when computing per-tile metrics
-REFRESH_TILE_THREADS = 2            # Number of tiles processed in parallel (threads)
-REFRESH_KD_WORKERS = 6              # cKDTree internal workers per query (parallel in C)
-GZIP_COMPRESSLEVEL = 1              # 1–3 is fast; higher compresses more but is slower
+REFRESH_CHUNK_ROWS = 600_000        # Rows per chunk when computing per-tile metrics
+REFRESH_TILE_THREADS = 2            # Limit parallelism during refresh steps
+REFRESH_KD_WORKERS = 4              # Lower KDTree workers to reduce memory pressure
+GZIP_COMPRESSLEVEL = 0              # 1–3 is fast; higher compresses more but is slower
 
 # ANN/hnswlib removed: representativeness uses exact sklearn NN only.
+
+# --------------------------
+# CSV/VECTORIZATION & I/O TUNING
+# --------------------------
+# Chunk size for scanning predictions.csv during candidate selection
+PREDICTIONS_CSV_CHUNK_ROWS = 500_000
+
+# Optional binary sidecars (.npy) to accelerate k-way merges
+BINARY_SIDECARS_ENABLED = True
+
+# --------------------------
+# BLAS/NUMERICAL THREADS (ENV)
+# --------------------------
+# Set default BLAS/OpenMP thread caps for NumPy/Scikit
+BLAS_NUM_THREADS = 8
+OMP_NUM_THREADS = BLAS_NUM_THREADS
+MKL_NUM_THREADS = BLAS_NUM_THREADS
+OPENBLAS_NUM_THREADS = BLAS_NUM_THREADS
+NUMEXPR_NUM_THREADS = BLAS_NUM_THREADS
+
+# --------------------------
+# GDAL / Rasterio tuning
+# --------------------------
+GDAL_CACHEMAX_MB = 512
+GDAL_NUM_THREADS = 'ALL_CPUS'
 
 # --------------------------
 # TERRAIN / DEM FEATURES
@@ -213,3 +241,21 @@ TERRAIN_BANDS = ["ELEVATION", "SLOPE", "ASPECT"]
 # This affects training/inference and candidate selection features only; the
 # raw tiles remain unchanged.
 EXCLUDED_BANDS = ["B1", "B9"]
+
+# --------------------------
+# MEMORY & PROCESS POOL BATCHING
+# --------------------------
+MEMORY_WATCHER_ENABLED = True
+MEMORY_WATCHER_THRESHOLD_PERCENT = 70   # Free Python memory earlier under load
+MEMORY_WATCHER_INTERVAL_SEC = 5         # Seconds between checks
+
+# Batch size for process pools (number of tiles per pool cycle) to limit peak RSS
+REFRESH_PROCESS_POOL_BATCH = 20
+INFER_BLOCK_SIZE = 512                  # Smaller blocks => lower transient memory
+
+# --------------------------
+# DEDUP (PERSISTENT LISTS) CONFIG
+# --------------------------
+# Chunk size (rows) for external sorts during dedup
+DEDUP_CHUNK_ROWS = 1_000_000 # Smaller chunks to keep dedup RAM bounded
+DEDUP_SORT_WORKERS = 12

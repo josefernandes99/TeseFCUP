@@ -18,19 +18,98 @@ from sklearn.metrics import (
     RocCurveDisplay,
     PrecisionRecallDisplay,
 )
+from sklearn.calibration import calibration_curve
 os.environ.setdefault("MPLBACKEND", "Agg")
 # Threading caps to avoid OpenBLAS/OpenMP warnings and oversubscription
-_DEFAULT_THREADS = str(max(1, min(4, (cpu_count() or 1))))
-os.environ.setdefault("OMP_NUM_THREADS", _DEFAULT_THREADS)
-os.environ.setdefault("MKL_NUM_THREADS", _DEFAULT_THREADS)
-os.environ.setdefault("OPENBLAS_NUM_THREADS", _DEFAULT_THREADS)
-os.environ.setdefault("NUMEXPR_NUM_THREADS", _DEFAULT_THREADS)
+try:
+    import config as _cfg_threads
+    _thr = str(int(getattr(_cfg_threads, 'BLAS_NUM_THREADS', max(1, min(4, (cpu_count() or 1))))))
+    for _k in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"):
+        os.environ.setdefault(_k, str(getattr(_cfg_threads, _k, _thr)))
+except Exception:
+    _DEFAULT_THREADS = str(max(1, min(4, (cpu_count() or 1))))
+    os.environ.setdefault("OMP_NUM_THREADS", _DEFAULT_THREADS)
+    os.environ.setdefault("MKL_NUM_THREADS", _DEFAULT_THREADS)
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", _DEFAULT_THREADS)
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", _DEFAULT_THREADS)
 import matplotlib
 matplotlib.use("Agg", force=True)
 import matplotlib.pyplot as plt
 from al_shared import extract_features_from_label
 import config as cfg
 from splits import load_labels, stratified_train_val_test_indices
+
+
+def _plot_threshold_sweep(y_true, probs, out_path):
+    import numpy as _np
+    import matplotlib.pyplot as _plt
+    ths = _np.linspace(0.0, 1.0, 101)
+    y_true = _np.asarray(y_true)
+    probs = _np.asarray(probs)
+    P = []
+    R = []
+    F1 = []
+    ACC = []
+    for t in ths:
+        pred = (probs >= t).astype(int)
+        P.append(precision_score(y_true, pred, zero_division=0))
+        R.append(recall_score(y_true, pred, zero_division=0))
+        F1.append(f1_score(y_true, pred, zero_division=0))
+        ACC.append(accuracy_score(y_true, pred))
+    _plt.figure(figsize=(7, 4))
+    _plt.plot(ths, P, label="Precision")
+    _plt.plot(ths, R, label="Recall")
+    _plt.plot(ths, F1, label="F1")
+    _plt.plot(ths, ACC, label="Accuracy")
+    # mark configured threshold
+    try:
+        import config as _cfg
+        t0 = float(getattr(_cfg, 'MIN_AGRI_PROB', 0.5))
+        _plt.axvline(t0, color='k', linestyle='--', alpha=0.5, label=f"th={t0:.2f}")
+    except Exception:
+        pass
+    _plt.xlabel("Threshold")
+    _plt.ylabel("Metric value")
+    _plt.ylim(0.0, 1.0)
+    _plt.grid(True, alpha=0.2)
+    _plt.legend(loc='best')
+    _plt.tight_layout()
+    _plt.savefig(out_path, dpi=180)
+    _plt.close()
+
+
+def _plot_calibration_with_hist(y_true, probs, out_path, n_bins=10):
+    import numpy as _np
+    import matplotlib.pyplot as _plt
+    frac_pos, mean_pred = calibration_curve(y_true, probs, n_bins=n_bins, strategy='uniform')
+    # Create a two-row figure: reliability (top) + histogram (bottom)
+    fig = _plt.figure(figsize=(6, 6))
+    gs = fig.add_gridspec(2, 1, height_ratios=[2, 1])
+    ax1 = fig.add_subplot(gs[0])
+    ax2 = fig.add_subplot(gs[1])
+    # Reliability diagram
+    ax1.plot([0, 1], [0, 1], 'k--', lw=1, label='Perfect calibration')
+    ax1.plot(mean_pred, frac_pos, marker='o', linestyle='-', label='Model')
+    ax1.set_xlim(0.0, 1.0)
+    ax1.set_ylim(0.0, 1.0)
+    ax1.set_xlabel("Predicted probability")
+    ax1.set_ylabel("Empirical positive rate")
+    ax1.grid(True, alpha=0.2)
+    # Histogram (probability distribution)
+    ax2.hist(probs, bins=n_bins, range=(0.0, 1.0), color='#6666cc', alpha=0.8)
+    ax2.set_xlim(0.0, 1.0)
+    ax2.set_xlabel("Predicted probability")
+    ax2.set_ylabel("Count")
+    ax2.grid(True, axis='y', alpha=0.2)
+    # Title with Brier score
+    try:
+        bs = brier_score_loss(y_true, probs)
+        fig.suptitle(f"Calibration (Brier={bs:.3f})", y=0.98)
+    except Exception:
+        pass
+    _plt.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    _plt.close(fig)
 
 def _single_split_metrics(model, X, y, seed=None):
     tr_idx, va_idx, _ = stratified_train_val_test_indices(
@@ -102,7 +181,11 @@ def evaluate_model(model, out_dir=None):
 
     X, y = [], []
     for r in rows:
-        feats = extract_features_from_label(r)
+        try:
+            feats = extract_features_from_label(r)
+        except Exception:
+            # Skip labels whose tiles cannot be read
+            continue
         if feats is None:
             continue
         X.append(feats)
@@ -167,10 +250,33 @@ def evaluate_model(model, out_dir=None):
             roc_disp.figure_.savefig(os.path.join(out_dir, "roc_curve.png"))
             plt.close(roc_disp.figure_)
 
-            # Precision-Recall curve
-            pr_disp = PrecisionRecallDisplay.from_predictions(yv, probs)
-            pr_disp.figure_.savefig(os.path.join(out_dir, "pr_curve.png"))
-            plt.close(pr_disp.figure_)
+            # Precision-Recall curve (annotate AP)
+            ap = average_precision_score(yv, probs)
+            from sklearn.metrics import precision_recall_curve
+            prec, rec, _ = precision_recall_curve(yv, probs)
+            fig_pr, ax_pr = plt.subplots(figsize=(5, 4))
+            ax_pr.plot(rec, prec, label=f"PR curve (AP={ap:.3f})")
+            ax_pr.set_xlabel("Recall")
+            ax_pr.set_ylabel("Precision")
+            ax_pr.set_xlim(0.0, 1.0)
+            ax_pr.set_ylim(0.0, 1.0)
+            ax_pr.grid(True, alpha=0.2)
+            ax_pr.legend(loc='best')
+            plt.tight_layout()
+            fig_pr.savefig(os.path.join(out_dir, "pr_curve.png"), dpi=180)
+            plt.close(fig_pr)
+
+            # Threshold sweep curves
+            try:
+                _plot_threshold_sweep(yv, probs, os.path.join(out_dir, "threshold_sweep.png"))
+            except Exception as e:
+                print(f"Threshold sweep plot failed: {e}")
+
+            # Calibration + histogram
+            try:
+                _plot_calibration_with_hist(yv, probs, os.path.join(out_dir, "calibration.png"), n_bins=10)
+            except Exception as e:
+                print(f"Calibration plot failed: {e}")
 
         # metrics JSON for programmatic use (mean/std when repeats>1)
         with open(os.path.join(out_dir, "metrics.json"), "w") as jf:

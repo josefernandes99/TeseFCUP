@@ -39,8 +39,10 @@ def _dedup_rows(rows):
 
 
 def main():
-    # Honor config toggle: when disabled, skip any updates silently.
-    if not getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+    # Honor per-list toggles: if both disabled, skip updates silently.
+    hs_on = bool(getattr(cfg, 'HIGHSCORE_LIST_ENABLED', True))
+    pa_on = bool(getattr(cfg, 'PROBABLE_AGRI_LIST_ENABLED', False))
+    if not (hs_on or pa_on):
         print("Persistent lists disabled in config; skipping refresh.")
         return
     pred_csv = sys.argv[1] if len(sys.argv) > 1 else None

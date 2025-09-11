@@ -75,3 +75,14 @@ def setup_check():
 
 if __name__ == "__main__":
     setup_check()
+
+def init_gee():
+    """Initialize the Google Earth Engine API without cleaning previous outputs."""
+    print("Initializing Google Earth Engine API...")
+    try:
+        ee.Initialize(project="earthenginecapeverde")
+        print("Earth Engine API initialized successfully!")
+    except Exception as e:
+        print("ERROR: Failed to initialize Earth Engine API. Check credentials & internet.")
+        print("Details:", e)
+        exit(1)

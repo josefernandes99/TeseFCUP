@@ -19,7 +19,9 @@ def preview_csv(path, top=20):
 
 
 def main():
-    if not getattr(cfg, 'PERSISTENT_LISTS_ENABLED', True):
+    hs_on = bool(getattr(cfg, 'HIGHSCORE_LIST_ENABLED', True))
+    pa_on = bool(getattr(cfg, 'PROBABLE_AGRI_LIST_ENABLED', False))
+    if not (hs_on or pa_on):
         print("Persistent lists disabled in config; report skipped.")
         return
     top = 20
@@ -28,8 +30,10 @@ def main():
             top = int(sys.argv[1])
         except Exception:
             pass
-    preview_csv(HIGHSCORE_FILE, top)
-    preview_csv(PROBABLE_AGRI_FILE, top)
+    if hs_on:
+        preview_csv(HIGHSCORE_FILE, top)
+    if pa_on:
+        preview_csv(PROBABLE_AGRI_FILE, top)
 
 
 if __name__ == "__main__":
