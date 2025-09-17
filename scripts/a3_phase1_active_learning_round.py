@@ -51,6 +51,8 @@ from config import (
 )
 import config as cfg
 from evaluation import evaluate_model
+from evaluation import compute_best_threshold_weighted
+from evaluation import _plot_confusion_normalised, _plot_pr_roc_combined, plot_feature_family_importance
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import get_scorer
 from splits import stratified_train_val_test_indices
@@ -1040,7 +1042,7 @@ def _merge_pos_files(files, out_path, total=None):
                     heapq.heappush(hs, (-pr2, row2, idx))
                     break
         if total:
-            _npb3().update(t_pa, completed=total)
+            _prog3.update(t_pa, completed=total)
     for src in sources:
         if src[0] == 'csv':
             try: src[1].close()
@@ -1356,6 +1358,87 @@ def save_agricultural_polygons_kml(round_folder, round_num, pred_csv=None, preds
         f.write(xml)
     print(f"{total_polys} agricultural polygons saved to {kml_path}")
 
+
+def save_agricultural_polygons_kml_at_threshold(round_folder, round_num, threshold, outfile_name=None, pred_csv=None, preds=None):
+    """Like save_agricultural_polygons_kml, but with a custom threshold and filename."""
+    kml_path = os.path.join(round_folder, outfile_name or f"agricultural_patches_round_{round_num}_th{threshold:.2f}.kml")
+
+    tile_dir = os.path.join(round_folder, '_tile_preds')
+    rings_all = []
+    if os.path.isdir(tile_dir):
+        files = sorted([p for p in glob.glob(os.path.join(tile_dir, '*.csv'))])
+        if files:
+            with new_progress() as prog:
+                task = prog.add_task("Polygonizing tiles (best-th)", total=len(files))
+                max_workers = max(1, (cpu_count() or 4) - 2)
+                with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                    futs = {ex.submit(_kml_polygons_from_tilefile, fp, RAW_DATA_DIR, float(threshold), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))): fp for fp in files}
+                    for fut in as_completed(futs):
+                        try:
+                            rings_all.extend(fut.result() or [])
+                        except Exception:
+                            pass
+                        prog.update(task, advance=1)
+    else:
+        pred_csv = pred_csv or os.path.join(round_folder, "predictions.csv")
+        if not os.path.exists(pred_csv):
+            print(f"Missing predictions file => {pred_csv}")
+            return
+        pred_map = _load_predictions_by_tile(pred_csv)
+        with new_progress() as prog:
+            task = prog.add_task("Polygonizing tiles (best-th)", total=len(pred_map))
+            for tile, (rows, cols, probs) in pred_map.items():
+                tif = os.path.join(RAW_DATA_DIR, tile)
+                if not os.path.exists(tif):
+                    prog.update(task, advance=1)
+                    continue
+                with rasterio.open(tif) as src:
+                    H, W = src.height, src.width
+                    mask = np.zeros((H, W), dtype=np.uint8)
+                    mask[rows, cols] = (probs >= float(threshold)).astype(np.uint8)
+                    from scipy.ndimage import binary_closing, binary_fill_holes
+                    mask = binary_fill_holes(binary_closing(mask.astype(bool))).astype(np.uint8)
+                    if getattr(cfg, 'SIEVE_MIN_SIZE', 0) > 0:
+                        mask = sieve(mask, size=int(cfg.SIEVE_MIN_SIZE), connectivity=8).astype(np.uint8)
+                    transformer = None
+                    if src.crs and not src.crs.is_geographic:
+                        transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+                    for geom, val in shapes(mask, mask=(mask>0), transform=src.transform):
+                        if not val:
+                            continue
+                        coords_img = geom['coordinates'][0]
+                        if transformer:
+                            ring = [transformer.transform(x, y) for x, y in coords_img]
+                        else:
+                            ring = [(x, y) for x, y in coords_img]
+                        rings_all.append(ring)
+                prog.update(task, advance=1)
+
+    if not rings_all:
+        print(f"WARNING: No polygons at best threshold (all probs < {threshold})")
+        return
+    doc = Element('Document')
+    style_ag = SubElement(doc, 'Style', id='agri')
+    ln = SubElement(style_ag, 'LineStyle'); SubElement(ln, 'color').text = 'ffffff55'; SubElement(ln, 'width').text = '1'
+    ps = SubElement(style_ag, 'PolyStyle'); SubElement(ps, 'color').text = '40ffff55'; SubElement(ps, 'outline').text = '1'
+    total_polys = 0
+    for coords in rings_all:
+        pm = SubElement(doc, 'Placemark')
+        SubElement(pm, 'styleUrl').text = '#agri'
+        poly_el = SubElement(pm, 'Polygon')
+        ob = SubElement(poly_el, 'outerBoundaryIs')
+        ring = SubElement(ob, 'LinearRing')
+        SubElement(ring, 'coordinates').text = ' '.join(f"{lon},{lat},0" for lon, lat in coords)
+        total_polys += 1
+    kml = Element('kml'); kml.set('xmlns','http://www.opengis.net/kml/2.2')
+    d2 = SubElement(kml, 'Document')
+    for el in list(doc):
+        d2.append(el)
+    xml = parseString(tostring(kml, encoding='utf-8')).toprettyxml(indent='  ', encoding='utf-8')
+    with open(kml_path, 'wb') as f:
+        f.write(xml)
+    print(f"{total_polys} agricultural polygons saved to {kml_path}")
+
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)
 # -----------------------------------------------------------------------------
@@ -1556,8 +1639,9 @@ def active_learning_round(
         # Use the merged CSV for downstream polygonization without keeping it permanently
         save_agricultural_polygons_kml(rnd_dir, round_num, pred_csv=pred_csv_path)
 
-    # Evaluate against optional evaluation set
-    stats_dir = os.path.join(rnd_dir, "statistics")
+    # Evaluate against optional evaluation set (normal threshold)
+    stats_root = os.path.join(rnd_dir, "statistics")
+    stats_dir = os.path.join(stats_root, "normal_threshold")
     os.makedirs(stats_dir, exist_ok=True)
     metrics = evaluate_model(model, out_dir=stats_dir)
     if metrics is not None:
@@ -1583,6 +1667,60 @@ def active_learning_round(
             json.dump(snap, jf, indent=2)
     except Exception as e:
         print(f"Config snapshot failed: {e}")
+
+    # Best-threshold stats and KML (advisory)
+    try:
+        if not bool(getattr(cfg, 'BEST_THRESHOLD_OUTPUTS_ENABLED', True)):
+            raise RuntimeError('BEST_THRESHOLD_OUTPUTS_ENABLED=False')
+        seed_plot = cfg.SPLIT_RANDOM_SEED if cfg.SPLIT_SEED_MODE == "fixed" else None
+        tr_idx, va_idx, _ = stratified_train_val_test_indices(
+            y, cfg.TRAIN_FRACTION, cfg.VAL_FRACTION, cfg.TEST_FRACTION, seed_plot
+        )
+        if va_idx.size:
+            probs = model.predict_proba(X[va_idx])[:, 1]
+            yv = y[va_idx]
+            best, best_m = compute_best_threshold_weighted(yv, probs)
+            best_th = float(best.get("threshold", cfg.MIN_AGRI_PROB))
+            # write best-th metrics under statistics/best_threshold
+            stats_dir_best = os.path.join(stats_root, "best_threshold")
+            os.makedirs(stats_dir_best, exist_ok=True)
+            from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
+            import matplotlib.pyplot as _plt
+            preds_best = (probs >= best_th).astype(int)
+            cm = confusion_matrix(yv, preds_best, labels=[0, 1])
+            rep = classification_report(yv, preds_best, digits=3)
+            with open(os.path.join(stats_dir_best, 'classification_report.txt'), 'w') as rf:
+                rf.write(rep)
+            _plot_confusion_normalised(yv, preds_best, os.path.join(stats_dir_best, 'confusion_matrix.png'), labels=("NonAgri","Agri"))
+            # Combined PR+ROC at best threshold
+            try:
+                _plot_pr_roc_combined(yv, probs, os.path.join(stats_dir_best, 'pr_roc_combined.png'), th_selected=best_th)
+            except Exception:
+                pass
+            # metrics files
+            import json as _json, csv as _csv
+            best_metrics_all = {
+                "precision": best_m.get("precision", 0.0),
+                "recall": best_m.get("recall", 0.0),
+                "f1": best_m.get("f1", 0.0),
+                "accuracy": best_m.get("accuracy", 0.0),
+                "threshold": best_th,
+                "score_weighted": best.get("score", 0.0),
+            }
+            with open(os.path.join(stats_dir_best, 'metrics.json'), 'w') as jf:
+                _json.dump(best_metrics_all, jf, indent=2)
+            with open(os.path.join(stats_dir_best, 'metrics_summary.csv'), 'w', newline='') as cf:
+                w = _csv.writer(cf); w.writerow(['metric','value'])
+                for k, v in best_metrics_all.items():
+                    w.writerow([k, v])
+            # Produce best-th KML while predictions are present
+            out_best_kml = f"agricultural_patches_round_{round_num}_best_th.kml"
+            save_agricultural_polygons_kml_at_threshold(
+                rnd_dir, round_num, best_th, outfile_name=out_best_kml,
+                pred_csv=pred_csv_path
+            )
+    except Exception as e:
+        print(f"Best-threshold stats/KML skipped: {e}")
     # Feature importance (permutation) on validation split if enabled
     try:
         if cfg.RUN_PERMUTATION_IMPORTANCE and len(np.unique(y)) > 1:
@@ -1619,6 +1757,11 @@ def active_learning_round(
                     plt.close()
                 except Exception as e:
                     print(f"Feature importance plot failed: {e}")
+                # Family contributions chart
+                try:
+                    plot_feature_family_importance(importances, names, os.path.join(stats_dir, 'feature_importance_families.png'))
+                except Exception:
+                    pass
     except Exception as e:
         print(f"Permutation importance skipped: {e}")
 
@@ -3268,6 +3411,9 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                 except Exception: pass
 
     if hs_on:
+        # Write fresh candidates to a temporary file; we will merge with the
+        # existing persistent CSV to preserve prior entries across runs.
+        hs_tmp = os.path.join(tmp_root, 'highscore_new.csv')
         hs_out = cfg.HIGHSCORE_FILE
         os.makedirs(os.path.dirname(hs_out), exist_ok=True)
         # Two-level parallel merge for highscore
@@ -3291,13 +3437,88 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                         inter_files.append(futs[fut])
                     except Exception:
                         pass
-            _merge_scored_files(inter_files, hs_out, total=n_total)
+            _merge_scored_files(inter_files, hs_tmp, total=n_total)
             for p in inter_files:
                 try: os.remove(p)
                 except Exception: pass
         else:
-            kmerge_desc(scored_files, hs_out, total=n_total)
-        # global KML limited (stream only top-K rows to avoid large RAM)
+            kmerge_desc(scored_files, hs_tmp, total=n_total)
+        # Strict persistence: merge temp with existing persistent CSV and drop only labeled pixels.
+        try:
+            def _load_csv(path):
+                rows = []
+                if os.path.exists(path):
+                    with open(path) as f:
+                        rd = csv.DictReader(f)
+                        for r in rd:
+                            rows.append(r)
+                return rows
+            existing = _load_csv(hs_out)
+            newrows = _load_csv(hs_tmp)
+            # Build labeled key set (tile:lat:lon) to exclude pixels already labeled
+            labeled_keys = set()
+            try:
+                from splits import load_labels as _load
+                if os.path.exists(cfg.LABELS_FILE):
+                    for r in _load(cfg.LABELS_FILE):
+                        try:
+                            labeled_keys.add(f"{r.get('tile')}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}")
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+            def _key(r):
+                try:
+                    return f"{r.get('tile')}:{int(r.get('row'))}:{int(r.get('col'))}"
+                except Exception:
+                    return None
+            merged = {}
+            for r in existing:
+                k = _key(r)
+                if not k: continue
+                try:
+                    kk = f"{r.get('tile')}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}"
+                    if kk in labeled_keys:
+                        continue
+                except Exception:
+                    pass
+                merged[k] = dict(r)
+            for r in newrows:
+                k = _key(r)
+                if not k: continue
+                try:
+                    kk = f"{r.get('tile')}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}"
+                    if kk in labeled_keys:
+                        continue
+                except Exception:
+                    pass
+                base = merged.get(k, {})
+                out = dict(base)
+                for fld in ('tile','row','col','lat','lon','prob','ndvi','score'):
+                    if r.get(fld) not in (None, ""):
+                        out[fld] = r.get(fld)
+                merged[k] = out
+            # Compose header
+            fields = set()
+            for r in merged.values():
+                fields.update(r.keys())
+            preferred = ["tile","row","col","lat","lon","prob","ndvi","score","entropy","times_selected","first_round","last_round"]
+            fields = [f for f in preferred if f in fields] + [f for f in sorted(fields) if f not in preferred]
+            # Sort by score desc then prob desc
+            def _num(val):
+                try:
+                    return float(val)
+                except Exception:
+                    return None
+            rows_sorted = list(merged.values())
+            rows_sorted.sort(key=lambda r: (_num(r.get('score')) is None, -(_num(r.get('score')) or 0.0),
+                                            _num(r.get('prob')) is None, -(_num(r.get('prob')) or 0.0)))
+            with open(hs_out, 'w', newline='') as f:
+                w = csv.DictWriter(f, fieldnames=fields)
+                w.writeheader(); w.writerows(rows_sorted)
+        except Exception as e:
+            print(f"Persistent Highscore merge failed: {e}")
+        # Build KML from the merged CSV (top-K cap applies only to KML)
         try:
             try:
                 topk = int(getattr(cfg, 'HIGHSCORE_KML_TOP_PIXELS', 50000))
@@ -3306,15 +3527,10 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             rows_small = []
             with open(hs_out) as f:
                 rd = csv.DictReader(f)
-                if topk and topk > 0:
-                    for i, r in enumerate(rd):
-                        rows_small.append(r)
-                        if len(rows_small) >= topk:
-                            break
-                else:
-                    # no cap; still stream to avoid list(rd)
-                    for r in rd:
-                        rows_small.append(r)
+                for i, r in enumerate(rd):
+                    rows_small.append(r)
+                    if topk and topk > 0 and len(rows_small) >= topk:
+                        break
             _write_ranked_pixel_kml(rows_small, cfg.HIGHSCORE_KML_GLOBAL, weight_key='score', top_k=topk)
         except Exception as e:
             print(f"Highscore KML failed: {e}")
@@ -3418,6 +3634,7 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                 except Exception: pass
 
     if pa_on:
+        pa_tmp = os.path.join(tmp_root, 'probableAgri_new.csv')
         pa_out = cfg.PROBABLE_AGRI_FILE
         # Two-level parallel merge for probable agri
         group_max = max(2, int(getattr(cfg, 'REFRESH_TILE_THREADS', 3)))
@@ -3440,12 +3657,84 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
                         inter_files.append(futs[fut])
                     except Exception:
                         pass
-            _merge_pos_files(inter_files, pa_out, total=pos_total)
+            _merge_pos_files(inter_files, pa_tmp, total=pos_total)
             for p in inter_files:
                 try: os.remove(p)
                 except Exception: pass
         else:
-            kmerge_pos(pos_files, pa_out, total=pos_total)
+            kmerge_pos(pos_files, pa_tmp, total=pos_total)
+        # Strict persistence merge into persistent ProbableAgri CSV
+        try:
+            def _load_csv2(path):
+                rows = []
+                if os.path.exists(path):
+                    with open(path) as f:
+                        rd = csv.DictReader(f)
+                        for r in rd:
+                            rows.append(r)
+                return rows
+            existing = _load_csv2(pa_out)
+            newrows = _load_csv2(pa_tmp)
+            labeled_keys = set()
+            try:
+                from splits import load_labels as _load
+                if os.path.exists(cfg.LABELS_FILE):
+                    for r in _load(cfg.LABELS_FILE):
+                        try:
+                            labeled_keys.add(f"{r.get('tile')}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}")
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+            def _key(r):
+                try:
+                    return f"{r.get('tile')}:{int(r.get('row'))}:{int(r.get('col'))}"
+                except Exception:
+                    return None
+            merged = {}
+            for r in existing:
+                k = _key(r)
+                if not k: continue
+                try:
+                    kk = f"{r.get('tile')}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}"
+                    if kk in labeled_keys:
+                        continue
+                except Exception:
+                    pass
+                merged[k] = dict(r)
+            for r in newrows:
+                k = _key(r)
+                if not k: continue
+                try:
+                    kk = f"{r.get('tile')}:{float(r.get('lat')):.7f}:{float(r.get('lon')):.7f}"
+                    if kk in labeled_keys:
+                        continue
+                except Exception:
+                    pass
+                base = merged.get(k, {})
+                out = dict(base)
+                for fld in ('tile','row','col','lat','lon','prob','ndvi'):
+                    if r.get(fld) not in (None, ""):
+                        out[fld] = r.get(fld)
+                merged[k] = out
+            fields = set()
+            for r in merged.values():
+                fields.update(r.keys())
+            preferred = ["tile","row","col","lat","lon","prob","ndvi"]
+            fields = [f for f in preferred if f in fields] + [f for f in sorted(fields) if f not in preferred]
+            def _probnum(r):
+                try:
+                    return float(r.get('prob',''))
+                except Exception:
+                    return None
+            rows_sorted = list(merged.values())
+            rows_sorted.sort(key=lambda r: (_probnum(r) is None, -(_probnum(r) or 0.0)))
+            with open(pa_out, 'w', newline='') as f:
+                w = csv.DictWriter(f, fieldnames=fields)
+                w.writeheader(); w.writerows(rows_sorted)
+        except Exception as e:
+            print(f"Persistent ProbableAgri merge failed: {e}")
+        # KML from merged ProbableAgri
         try:
             try:
                 topk_pa = int(getattr(cfg, 'PROBABLE_AGRI_KML_TOP_PIXELS', 50000))
@@ -3454,14 +3743,10 @@ def refresh_global_lists_full(pred_csv, round_dir, round_num, train_rows, X_trai
             rows_small = []
             with open(pa_out) as f:
                 rd = csv.DictReader(f)
-                if topk_pa and topk_pa > 0:
-                    for i, r in enumerate(rd):
-                        rows_small.append(r)
-                        if len(rows_small) >= topk_pa:
-                            break
-                else:
-                    for r in rd:
-                        rows_small.append(r)
+                for i, r in enumerate(rd):
+                    rows_small.append(r)
+                    if topk_pa and topk_pa > 0 and len(rows_small) >= topk_pa:
+                        break
             _write_ranked_pixel_kml(rows_small, cfg.PROBABLE_AGRI_KML_GLOBAL, weight_key='prob', top_k=topk_pa)
         except Exception as e:
             print(f"ProbableAgri KML failed: {e}")

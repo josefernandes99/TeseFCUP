@@ -17,6 +17,8 @@ from sklearn.metrics import (
     classification_report,
     RocCurveDisplay,
     PrecisionRecallDisplay,
+    roc_curve,
+    precision_recall_curve,
 )
 from sklearn.calibration import calibration_curve
 os.environ.setdefault("MPLBACKEND", "Agg")
@@ -39,8 +41,217 @@ from al_shared import extract_features_from_label
 import config as cfg
 from splits import load_labels, stratified_train_val_test_indices
 
+def plot_feature_family_importance(importances, feature_names, out_path, normalize=True):
+    """Plot contributions grouped by feature family.
 
-def _plot_threshold_sweep(y_true, probs, out_path):
+    Families: 'red-edge' (B5,B6,B7,B8A), 'spectral' (other B* bands),
+              'indices' (NDVI/EVI2/GNDVI/NDWI/NDRE/etc.),
+              'terrain' (ELEVATION/SLOPE/ASPECT), 'textures' (NDVI_*_local*).
+
+    importances: 1D array-like of permutation importances (mean).
+    feature_names: list of names aligned with importances.
+    out_path: output PNG path.
+    normalize: when True, scale bars to sum to 1 (percent).
+    """
+    import numpy as _np
+    import matplotlib.pyplot as _plt
+
+    imps = _np.asarray(importances, dtype=float)
+    names = list(feature_names or [])
+    if imps.ndim != 1 or len(names) != imps.size:
+        return
+
+    families = ["red-edge", "spectral", "indices", "terrain", "textures"]
+    contrib = {k: 0.0 for k in families}
+
+    idx_set = set(str(x).upper() for x in getattr(cfg, "INDICES", []))
+    terrain_set = {"ELEVATION", "SLOPE", "ASPECT"}
+    red_edge_set = {"B5", "B6", "B7", "B8A"}
+
+    def _family_for(name: str) -> str:
+        n = str(name)
+        if ("localmean" in n.lower()) or ("localstd" in n.lower()):
+            return "textures"
+        base = n.split("_s")[0].upper()
+        if base in terrain_set:
+            return "terrain"
+        if base in idx_set:
+            return "indices"
+        if base in red_edge_set:
+            return "red-edge"
+        if base.startswith("B"):
+            return "spectral"
+        # Fallbacks: treat NDVI_MEAN_* textures as textures; else indices
+        if n.upper().startswith("NDVI_MEAN_"):
+            return "textures"
+        return "indices"
+
+    for imp, nm in zip(imps, names):
+        fam = _family_for(nm)
+        val = float(max(0.0, imp))
+        contrib[fam] = contrib.get(fam, 0.0) + val
+
+    vals = [contrib[k] for k in families]
+    total = float(sum(vals))
+    if normalize and total > 0:
+        vals = [v / total for v in vals]
+
+    _plt.figure(figsize=(6.5, 3.6))
+    bars = _plt.bar(range(len(families)), vals, color=["#8c564b", "#1f77b4", "#2ca02c", "#9467bd", "#ff7f0e"])  # fixed palette
+    _plt.xticks(range(len(families)), families, rotation=0)
+    _plt.ylabel("Contribution" + (" (fraction)" if normalize else ""))
+    _plt.title("Feature family contributions")
+    _plt.ylim(0.0, max(1.0 if normalize else max(vals + [0.0]) * 1.10, max(vals + [0.0]) * 1.05 if not normalize else 1.0))
+    if total > 0:
+        for rect, v in zip(bars, vals):
+            lab = f"{v*100:.1f}%" if normalize else f"{v:.3f}"
+            _plt.text(rect.get_x() + rect.get_width()/2.0, rect.get_height() + (0.01 if normalize else (0.01*max(vals+[1]))), lab,
+                      ha='center', va='bottom', fontsize=8)
+    _plt.tight_layout()
+    _plt.savefig(out_path, dpi=180)
+    _plt.close()
+
+def _metrics_at_threshold(y_true, probs, th):
+    import numpy as _np
+    from sklearn.metrics import confusion_matrix
+    y_true = _np.asarray(y_true)
+    probs = _np.asarray(probs)
+    y_pred = (probs >= float(th)).astype(int)
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    tpr = tp / (tp + fn) if (tp + fn) else 0.0
+    fpr = fp / (fp + tn) if (fp + tn) else 0.0
+    prec = tp / (tp + fp) if (tp + fp) else 0.0
+    rec = tpr
+    return {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp), "tpr": float(tpr), "fpr": float(fpr), "precision": float(prec), "recall": float(rec)}
+
+def _plot_confusion_normalised(y_true, y_pred, out_path, labels=("Negative","Positive")):
+    import numpy as _np
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    with _np.errstate(divide='ignore', invalid='ignore'):
+        row_sums = cm.sum(axis=1, keepdims=True)
+        cmn = _np.divide(cm, row_sums, where=row_sums != 0)
+        cmn = _np.nan_to_num(cmn)
+    fig, ax = plt.subplots(figsize=(4.6, 4.2))
+    im = ax.imshow(cmn, interpolation='nearest', cmap='Blues', vmin=0.0, vmax=1.0)
+    ax.set_title('Confusion Matrix (normalised by true class)')
+    tick_marks = _np.arange(len(labels))
+    ax.set_xticks(tick_marks, labels)
+    ax.set_yticks(tick_marks, labels)
+    ax.set_ylabel('True class')
+    ax.set_xlabel('Predicted class')
+    fmt = '.2f'
+    thresh = cmn.max() / 2.
+    for i in range(cmn.shape[0]):
+        for j in range(cmn.shape[1]):
+            ax.text(j, i, format(cmn[i, j], fmt), ha="center", va="center",
+                    color="white" if cmn[i, j] > thresh else "black", fontsize=9)
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label('Proportion within true class', rotation=90)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+def _plot_prob_hist_by_class(y_true, probs, out_path):
+    import numpy as _np
+    y_true = _np.asarray(y_true)
+    probs = _np.asarray(probs)
+    pos = probs[y_true == 1]
+    neg = probs[y_true == 0]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    bins = _np.linspace(0.0, 1.0, 21)
+    ax.hist(neg, bins=bins, density=True, alpha=0.5, label='NonAgri', color="#1f77b4")
+    ax.hist(pos, bins=bins, density=True, alpha=0.5, label='Agri', color="#d62728")
+    ax.set_xlabel('Predicted probability (Agri)')
+    ax.set_ylabel('Density')
+    ax.set_title('Probability histograms by class')
+    ax.grid(True, alpha=0.2)
+    ax.legend(loc='best')
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+def _plot_pr_roc_combined(y_true, probs, out_path, th_selected=None, th_best=None):
+    import numpy as _np
+    from matplotlib.lines import Line2D
+    y_true = _np.asarray(y_true)
+    probs = _np.asarray(probs)
+    fig, (ax_roc, ax_pr) = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=False)
+    fpr, tpr, _ = roc_curve(y_true, probs)
+    ax_roc.plot(fpr, tpr, color="#1f77b4", label="ROC curve")
+    ax_roc.plot([0, 1], [0, 1], "--", color="#aaaaaa", linewidth=1)
+    ax_roc.set_xlabel("False Positive Rate")
+    ax_roc.set_ylabel("True Positive Rate")
+    ax_roc.set_title("ROC")
+    ax_roc.grid(True, alpha=0.2)
+    prec, rec, _ = precision_recall_curve(y_true, probs)
+    ax_pr.plot(rec, prec, color="#2ca02c", label="PR curve")
+    ax_pr.set_xlabel("Recall")
+    ax_pr.set_ylabel("Precision")
+    ax_pr.set_title("Precision–Recall")
+    ax_pr.set_xlim(0.0, 1.0)
+    ax_pr.set_ylim(0.0, 1.0)
+    ax_pr.grid(True, alpha=0.2)
+    handles = [Line2D([0], [0], color="#1f77b4"), Line2D([0], [0], color="#2ca02c")]
+    labels = ["ROC curve", "PR curve"]
+    def _mark(th, color, label):
+        m = _metrics_at_threshold(y_true, probs, th)
+        ax_roc.scatter([m["fpr"]], [m["tpr"]], color=color, s=40, edgecolor="black", zorder=5)
+        ax_roc.annotate(f"th={th:.2f}", (m["fpr"], m["tpr"]), textcoords="offset points", xytext=(5, -12), fontsize=8)
+        ax_pr.scatter([m["recall"]], [m["precision"]], color=color, s=40, edgecolor="black", zorder=5)
+        ax_pr.annotate(f"th={th:.2f}", (m["recall"], m["precision"]), textcoords="offset points", xytext=(5, -12), fontsize=8)
+        handles.append(Line2D([0], [0], marker='o', color='w', markerfacecolor=color, markeredgecolor='black'))
+        labels.append(label)
+    if th_selected is not None:
+        _mark(float(th_selected), color="#d62728", label="Selected threshold")
+    if th_best is not None:
+        _mark(float(th_best), color="#9467bd", label="Best threshold")
+    fig.subplots_adjust(right=0.80)
+    fig.legend(handles, labels, loc="center left", bbox_to_anchor=(0.82, 0.5), borderaxespad=0.0)
+    fig.tight_layout(rect=(0.0, 0.0, 0.80, 1.0))
+    fig.savefig(out_path, dpi=180)
+    plt.close(fig)
+
+def compute_best_threshold_weighted(y_true, probs, weights=None):
+    """Return best threshold based on a weighted score of metrics.
+
+    weights: dict with keys 'precision','recall','f1','accuracy'. Defaults to
+             precision=0.50, recall=0.30, f1=0.15, accuracy=0.05.
+    """
+    import numpy as _np
+    from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+    if weights is None:
+        weights = {"precision": 0.50, "recall": 0.30, "f1": 0.15, "accuracy": 0.05}
+    wP = float(weights.get("precision", 0.5))
+    wR = float(weights.get("recall", 0.3))
+    wF = float(weights.get("f1", 0.15))
+    wA = float(weights.get("accuracy", 0.05))
+    ths = _np.linspace(0.0, 1.0, 101)
+    best = {"threshold": 0.0, "score": -1.0}
+    best_metrics = None
+    y_true = _np.asarray(y_true)
+    probs = _np.asarray(probs)
+    for t in ths:
+        pred = (probs >= t).astype(int)
+        P = precision_score(y_true, pred, zero_division=0)
+        R = recall_score(y_true, pred, zero_division=0)
+        F1 = f1_score(y_true, pred, zero_division=0)
+        ACC = accuracy_score(y_true, pred)
+        score = wP * P + wR * R + wF * F1 + wA * ACC
+        # tie-breakers: higher recall, then lower threshold
+        if (score > best["score"]) or (
+            _np.isclose(score, best["score"]) and (
+                (best_metrics and R > best_metrics.get("recall", 0.0)) or
+                (best_metrics and _np.isclose(R, best_metrics.get("recall", 0.0)) and t < best["threshold"]) or
+                (best_metrics is None)
+            )
+        ):
+            best = {"threshold": float(t), "score": float(score)}
+            best_metrics = {"precision": float(P), "recall": float(R), "f1": float(F1), "accuracy": float(ACC)}
+    return best, best_metrics
+
+
+def _plot_threshold_sweep(y_true, probs, out_path, best_th: float | None = None):
     import numpy as _np
     import matplotlib.pyplot as _plt
     ths = _np.linspace(0.0, 1.0, 101)
@@ -65,9 +276,11 @@ def _plot_threshold_sweep(y_true, probs, out_path):
     try:
         import config as _cfg
         t0 = float(getattr(_cfg, 'MIN_AGRI_PROB', 0.5))
-        _plt.axvline(t0, color='k', linestyle='--', alpha=0.5, label=f"th={t0:.2f}")
+        _plt.axvline(t0, color='k', linestyle='--', alpha=0.7, label=f"selected th={t0:.2f}")
     except Exception:
         pass
+    if best_th is not None:
+        _plt.axvline(float(best_th), color='#9467bd', linestyle=':', linewidth=2.0, alpha=0.9, label=f"best th={float(best_th):.2f}")
     _plt.xlabel("Threshold")
     _plt.ylabel("Metric value")
     _plt.ylim(0.0, 1.0)
@@ -237,13 +450,8 @@ def evaluate_model(model, out_dir=None):
             with open(os.path.join(out_dir, "classification_report.txt"), "w") as rf:
                 rf.write(report)
 
-            # confusion matrix plot
-            disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["NonAgri", "Agri"])
-            fig, ax = plt.subplots(figsize=(4, 4))
-            disp.plot(ax=ax, colorbar=False)
-            plt.tight_layout()
-            fig.savefig(os.path.join(out_dir, "confusion_matrix.png"))
-            plt.close(fig)
+            # Normalised confusion matrix with colorbar legend
+            _plot_confusion_normalised(yv, preds, os.path.join(out_dir, "confusion_matrix.png"), labels=("NonAgri","Agri"))
 
             # ROC curve
             roc_disp = RocCurveDisplay.from_predictions(yv, probs)
@@ -266,9 +474,15 @@ def evaluate_model(model, out_dir=None):
             fig_pr.savefig(os.path.join(out_dir, "pr_curve.png"), dpi=180)
             plt.close(fig_pr)
 
+            # Compute best threshold for annotation and build sweep
+            try:
+                best, _best_m = compute_best_threshold_weighted(yv, probs)
+                th_best = float(best.get("threshold", float(getattr(cfg, 'MIN_AGRI_PROB', 0.5))))
+            except Exception:
+                th_best = None
             # Threshold sweep curves
             try:
-                _plot_threshold_sweep(yv, probs, os.path.join(out_dir, "threshold_sweep.png"))
+                _plot_threshold_sweep(yv, probs, os.path.join(out_dir, "threshold_sweep.png"), best_th=th_best)
             except Exception as e:
                 print(f"Threshold sweep plot failed: {e}")
 
@@ -277,6 +491,18 @@ def evaluate_model(model, out_dir=None):
                 _plot_calibration_with_hist(yv, probs, os.path.join(out_dir, "calibration.png"), n_bins=10)
             except Exception as e:
                 print(f"Calibration plot failed: {e}")
+
+            # Combined PR+ROC and probability histograms by class
+            try:
+                _plot_pr_roc_combined(yv, probs, os.path.join(out_dir, "pr_roc_combined.png"),
+                                      th_selected=float(getattr(cfg, 'MIN_AGRI_PROB', 0.5)),
+                                      th_best=th_best)
+            except Exception as e:
+                print(f"Combined PR/ROC plot failed: {e}")
+            try:
+                _plot_prob_hist_by_class(yv, probs, os.path.join(out_dir, "prob_hist_by_class.png"))
+            except Exception as e:
+                print(f"Probability histogram plot failed: {e}")
 
         # metrics JSON for programmatic use (mean/std when repeats>1)
         with open(os.path.join(out_dir, "metrics.json"), "w") as jf:
@@ -403,11 +629,7 @@ def evaluate_model_repeated(model, out_dir=None):
         rep = classification_report(yv0, preds0, digits=3)
         with open(os.path.join(out_dir, 'classification_report.txt'), 'w') as rf:
             rf.write(rep)
-        disp = ConfusionMatrixDisplay(confusion_matrix=cm0, display_labels=["NonAgri","Agri"])
-        fig, ax = plt.subplots(figsize=(4,4))
-        disp.plot(ax=ax, colorbar=False)
-        plt.tight_layout(); fig.savefig(os.path.join(out_dir, 'confusion_matrix.png'))
-        plt.close(fig)
+        _plot_confusion_normalised(yv0, preds0, os.path.join(out_dir, 'confusion_matrix.png'), labels=("NonAgri","Agri"))
         roc_disp = RocCurveDisplay.from_predictions(yv0, probs0)
         roc_disp.figure_.savefig(os.path.join(out_dir, 'roc_curve.png'))
         plt.close(roc_disp.figure_)

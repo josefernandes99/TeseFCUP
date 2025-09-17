@@ -1,7 +1,8 @@
-# Required libraries for the Phase 1 pipeline
+# Phase 1 pipeline dependencies (Python 3.12 compatible)
 
 # Core
-numpy==1.23.5
+numpy==1.26.4
+scipy==1.13.1
 certifi==2024.2.2
 pyproj==3.6.1
 
@@ -9,68 +10,18 @@ pyproj==3.6.1
 earthengine-api==0.1.350
 rasterio==1.3.8
 shapely==2.0.3
-scipy==1.11.4
 
-# Progress display
+# Progress / utilities
 rich==13.7.0
+joblib==1.4.2
+psutil==5.9.8
+matplotlib==3.8.4
 
 # Machine Learning
 torch==2.5.0
 scikit-learn==1.5.0
-joblib==1.4.2
-psutil==5.9.8
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-matplotlib==3.8.4
 xgboost==2.0.3
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-matplotlib==3.8.4
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-matplotlib==3.8.4
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-scikit-image==0.25.2
-numba==0.59.1
-filelock==3.13.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-numba==0.59.1
-scikit-image==0.25.2
-scikit-image==0.25.2
-scikit-image==0.25.2
-scikit-image==0.25.2
-scikit-image==0.25.2
+
+# Notes
+# - Removed: scikit-image, numba, filelock (unused by active pipeline).
+# - If your environment already has working versions pinned, prefer those.

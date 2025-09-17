@@ -209,3 +209,971 @@ ProbableAgri_789851,16.6497202,-24.3959106,Sao_Nicolau_tile4.tif,Agricultural,Ag
 ProbableAgri_525715,16.6497186,-24.3960042,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Certain,415,372
 ProbableAgri_491994,16.6477395,-24.3955948,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Certain,437,376
 ProbableAgri_128137,16.6497278,-24.3954426,Sao_Nicolau_tile4.tif,Agricultural,Agricultural Certain,415,378
+AL_1_300913,14.9606031,-23.6296466,Santiago_tile31.tif,Non-Agricultural,Open Field / Tree,270,228
+AL_1_589238,15.1977099,-23.2103915,Maio_tile1.tif,Non-Agricultural,Open Field / Tree,64,313
+AL_1_326854,15.1178110,-23.5556994,Santiago_tile54.tif,Non-Agricultural,Open Field / Tree,25,51
+AL_1_644609,16.7632548,-22.9776490,Sal_tile3.tif,Non-Agricultural,Open Field / Tree,38,268
+AL_1_382029,14.8793660,-24.7146920,Brava_tile2.tif,Non-Agricultural,Open Field / Tree,280,396
+AL_1_188611,15.1814035,-23.6109692,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,324,428
+AL_1_148120,16.6137103,-24.2718809,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,344,175
+AL_1_832913,17.1174326,-25.1516886,Santo_Antao_tile32.tif,Agricultural,Agricultural Certain,84,376
+AL_1_410108,17.0331534,-25.2233247,Santo_Antao_tile23.tif,Non-Agricultural,Open Field / Tree,14,110
+AL_1_679572,17.1140656,-25.1134370,Santo_Antao_tile39.tif,Non-Agricultural,Open Field / Tree,120,287
+AL_1_90264,14.8513332,-24.7014079,Brava_tile4.tif,Non-Agricultural,Open Field / Tree,201,52
+AL_1_474172,15.0272393,-24.3883788,Fogo_tile17.tif,Non-Agricultural,Open Field / Tree,359,277
+AL_1_355933,15.1824324,-23.6619516,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,312,367
+AL_1_214909,14.9669253,-24.4492718,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,89,137
+AL_1_28334,17.1152910,-25.0392630,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,102,84
+AL_1_361242,14.9667944,-24.4697905,Fogo_tile3.tif,Non-Agricultural,Open Field / Tree,96,428
+AL_1_298225,15.0870387,-23.6162278,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,369,371
+AL_1_906869,16.6114466,-24.4179852,Sao_Nicolau_tile3.tif,Non-Agricultural,Open Field / Tree,369,138
+AL_1_991956,17.0862287,-25.1558728,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,429,324
+AL_1_790362,15.0188285,-24.3283347,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,454,410
+AL_1_173485,15.0923093,-23.6213128,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,310,317
+AL_1_768012,15.0782581,-23.7623488,Santiago_tile4.tif,Non-Agricultural,Open Field / Tree,465,261
+AL_1_759637,15.0616637,-23.5521461,Santiago_tile53.tif,Non-Agricultural,Open Field / Tree,148,88
+AL_1_824730,15.0372651,-24.3759039,Fogo_tile17.tif,Non-Agricultural,Open Field / Tree,250,413
+AL_1_878465,14.9380231,-23.6528761,Santiago_tile20.tif,Non-Agricultural,Open Field / Tree,23,469
+AL_2_756809,15.3229077,-23.7351056,Santiago_tile19.tif,Non-Agricultural,Open Field / Tree,251,69
+AL_2_136192,14.8725518,-24.6951816,Brava_tile5.tif,Non-Agricultural,Open Field / Tree,351,116
+AL_2_901315,15.1012896,-23.7326180,Santiago_tile14.tif,Agricultural,Agricultural Doubtful,208,96
+AL_2_32357,15.0349946,-24.3340663,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,274,351
+AL_2_70318,15.1651890,-23.7291600,Santiago_tile16.tif,Non-Agricultural,Open Field / Tree,500,130
+AL_2_993585,15.0085537,-23.6542095,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,241,452
+AL_2_970875,15.0668744,-23.6180263,Santiago_tile33.tif,Non-Agricultural,Open Field / Tree,93,355
+AL_2_628961,14.9767564,-23.4695457,Santiago_tile71.tif,Non-Agricultural,Open Field / Tree,88,2
+AL_2_942887,15.2485610,-23.2121322,Maio_tile2.tif,Non-Agricultural,Open Field / Tree,15,295
+AL_2_644752,16.6029959,-24.2585920,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,465,315
+AL_2_6591,15.2160138,-23.2142114,Maio_tile2.tif,Non-Agricultural,Open Field / Tree,375,269
+AL_2_115413,14.9314278,-24.4745134,Fogo_tile2.tif,Non-Agricultural,Open Field / Tree,19,379
+AL_2_176761,14.9519574,-24.4600812,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,253,18
+AL_2_464962,15.2103177,-23.6868590,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,499,97
+AL_2_705418,14.9485604,-23.5847169,Santiago_tile41.tif,Non-Agricultural,Open Field / Tree,403,222
+AL_2_50631,15.0640219,-23.5911257,Santiago_tile43.tif,Non-Agricultural,Open Field / Tree,122,157
+AL_2_193265,15.0093803,-24.4115022,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,85,32
+AL_2_462253,15.0582696,-23.4753174,Santiago_tile63.tif,Non-Agricultural,Open Field / Tree,189,426
+AL_2_631276,17.1678140,-25.0650789,Santo_Antao_tile47.tif,Non-Agricultural,Open Field / Tree,24,307
+AL_2_613056,15.0767769,-23.6287455,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,481,235
+AL_2_565647,15.2559990,-23.1721902,Maio_tile8.tif,Non-Agricultural,Open Field / Tree,447,288
+AL_2_61527,16.7640679,-22.9776574,Sal_tile3.tif,Non-Agricultural,Open Field / Tree,29,268
+AL_2_490270,16.5914718,-24.2966870,Sao_Nicolau_tile12.tif,Non-Agricultural,Open Field / Tree,129,422
+AL_2_290684,15.0633568,-23.5939995,Santiago_tile43.tif,Non-Agricultural,Open Field / Tree,129,126
+AL_2_511887,15.1359958,-23.5612182,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,328,476
+AL_3_418444,16.8636588,-24.9907749,Sao_Vicente_tile10.tif,Non-Agricultural,Open Field / Tree,286,48
+AL_3_994468,16.6196724,-24.2944532,Sao_Nicolau_tile13.tif,Non-Agricultural,Building / Man Made,283,443
+AL_3_434169,15.2727498,-23.1685464,Maio_tile8.tif,Non-Agricultural,Open Field / Tree,262,329
+AL_3_985437,16.0178413,-22.9361314,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,382,411
+AL_3_756744,16.6586118,-22.9215498,Sal_tile7.tif,Non-Agricultural,Open Field / Tree,166,384
+AL_3_929800,16.6138064,-24.2715080,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,343,179
+AL_3_71941,15.0651780,-23.5927201,Santiago_tile43.tif,Non-Agricultural,Open Field / Tree,109,140
+AL_3_855374,15.0992752,-23.5331622,Santiago_tile54.tif,Agricultural,Agricultural Certain,233,291
+AL_3_405507,16.0125407,-22.8921698,Boa_Vista_tile7.tif,Non-Agricultural,Open Field / Tree,440,390
+AL_3_133656,14.9112471,-23.4957381,Santiago_tile60.tif,Non-Agricultural,Open Field / Tree,316,205
+AL_3_787656,15.1425191,-23.5435340,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,252,179
+AL_3_740250,17.1644063,-25.0997219,Santo_Antao_tile40.tif,Agricultural,Agricultural Certain,64,434
+AL_3_959561,15.0136941,-23.6549236,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,184,445
+AL_3_345875,16.1672354,-22.7555312,Boa_Vista_tile28.tif,Non-Agricultural,Open Field / Tree,294,382
+AL_3_378746,15.2584176,-23.1743558,Maio_tile8.tif,Non-Agricultural,Open Field / Tree,420,265
+AL_3_194022,15.0518990,-23.6163559,Santiago_tile33.tif,Non-Agricultural,Building / Man Made,259,371
+AL_3_683948,15.1374251,-23.5626303,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,312,461
+AL_3_778755,14.9983263,-23.5045526,Santiago_tile62.tif,Agricultural,Agricultural Doubtful,350,110
+AL_3_51323,15.1327934,-23.5964239,Santiago_tile45.tif,Agricultural,Agricultural Certain,359,97
+AL_3_529836,15.1286858,-23.7451494,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,409,446
+AL_3_722995,15.1707861,-23.1353128,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,361,254
+AL_3_192114,14.9818019,-23.5284293,Santiago_tile51.tif,Agricultural,Agricultural Doubtful,36,344
+AL_3_633463,15.0805718,-23.6672798,Santiago_tile24.tif,Non-Agricultural,Open Field / Tree,440,309
+AL_3_136784,16.8298750,-24.9464136,Sao_Vicente_tile13.tif,Non-Agricultural,Open Field / Tree,225,16
+AL_3_71299,15.2786411,-23.1666522,Maio_tile8.tif,Non-Agricultural,Open Field / Tree,197,350
+AL_4_122354,15.0780853,-23.6942077,Santiago_tile24.tif,Non-Agricultural,Open Field / Tree,464,19
+AL_4_906417,15.1356514,-23.5597261,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,326,4
+AL_4_942077,16.5958072,-22.9223301,Sal_tile6.tif,Non-Agricultural,Open Field / Tree,345,374
+AL_4_864354,15.0489848,-23.4651701,Santiago_tile73.tif,Non-Agricultural,Open Field / Tree,287,47
+AL_4_975943,15.1909553,-23.2265100,Maio_tile1.tif,Non-Agricultural,Open Field / Tree,137,139
+AL_4_930337,14.9017150,-24.4576056,Fogo_tile8.tif,Non-Agricultural,Open Field / Tree,343,43
+AL_4_239021,16.8388865,-24.9139992,Sao_Vicente_tile13.tif,Non-Agricultural,Open Field / Tree,132,364
+AL_4_633777,16.1202247,-22.7247342,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,291,222
+AL_4_458783,15.0146994,-23.5270502,Santiago_tile52.tif,Non-Agricultural,Open Field / Tree,171,358
+AL_4_841461,14.8442571,-24.7370999,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,282,155
+AL_4_640875,14.9749088,-23.4649709,Santiago_tile71.tif,Non-Agricultural,Open Field / Tree,109,51
+AL_4_595521,15.1768532,-23.7429810,Santiago_tile6.tif,Non-Agricultural,Open Field / Tree,375,470
+AL_4_735688,17.1368326,-25.1249146,Santo_Antao_tile40.tif,Agricultural,Agricultural Doubtful,364,159
+AL_4_3327,15.0381387,-24.3351371,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,239,340
+AL_4_138242,16.1510704,-22.8813274,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,470,15
+AL_4_285014,15.1299695,-23.5268312,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,393,357
+AL_4_648710,15.1965350,-23.5991559,Santiago_tile46.tif,Non-Agricultural,Open Field / Tree,152,70
+AL_4_415168,14.9188150,-23.6029408,Santiago_tile40.tif,Non-Agricultural,Open Field / Tree,231,28
+AL_4_889407,15.1427363,-23.6579210,Santiago_tile25.tif,Non-Agricultural,Open Field / Tree,253,412
+AL_4_764221,15.1407965,-23.5600670,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,275,489
+AL_4_166972,17.1128529,-25.2462242,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,135,360
+AL_4_96069,15.1487552,-23.5592327,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,181,11
+AL_4_464499,16.6328590,-24.2597519,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,134,308
+AL_4_877505,16.8722552,-24.9662204,Sao_Vicente_tile10.tif,Non-Agricultural,Open Field / Tree,196,312
+AL_4_210364,15.1735657,-23.1375736,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,330,230
+AL_5_749767,15.2032254,-23.2099838,Maio_tile1.tif,Non-Agricultural,Open Field / Tree,3,318
+AL_5_680311,16.0337779,-22.9324543,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,206,452
+AL_5_892050,15.1194152,-23.5174070,Santiago_tile54.tif,Agricultural,Agricultural Doubtful,12,463
+AL_5_698152,16.6928652,-22.9399859,Sal_tile8.tif,Non-Agricultural,Open Field / Tree,301,186
+AL_5_63200,15.2589219,-23.2151258,Maio_tile3.tif,Non-Agricultural,Open Field / Tree,415,259
+AL_5_456996,16.8594415,-24.9849714,Sao_Vicente_tile10.tif,Non-Agricultural,Open Field / Tree,334,109
+AL_5_73808,15.0988119,-23.7133419,Santiago_tile14.tif,Non-Agricultural,Open Field / Tree,238,303
+AL_5_616984,15.1788217,-23.1359518,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,272,248
+AL_5_973949,16.8486153,-25.0173450,Sao_Vicente_tile5.tif,Agricultural,Agricultural Doubtful,23,277
+AL_5_608891,15.1433782,-23.5713508,Santiago_tile45.tif,Agricultural,Agricultural Doubtful,245,368
+AL_5_142509,15.0811985,-23.4933410,Santiago_tile64.tif,Agricultural,Agricultural Certain,432,230
+AL_5_654967,16.8585114,-25.0049069,Sao_Vicente_tile6.tif,Non-Agricultural,Open Field / Tree,350,403
+AL_5_941802,15.2658131,-23.7508326,Santiago_tile8.tif,Agricultural,Agricultural Doubtful,388,385
+AL_5_990397,15.1130671,-23.5518302,Santiago_tile54.tif,Agricultural,Agricultural Certain,78,92
+AL_5_599021,14.9758494,-23.6701598,Santiago_tile21.tif,Non-Agricultural,Open Field / Tree,101,282
+AL_5_429982,16.6566897,-24.4002473,Sao_Nicolau_tile4.tif,Non-Agricultural,Open Field / Tree,337,328
+AL_5_708012,16.6256841,-24.2739566,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,211,155
+AL_5_628057,15.9938722,-22.7930609,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,125,473
+AL_5_454958,15.1343888,-23.1526211,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,247,69
+AL_5_864460,16.1124752,-22.8825521,Boa_Vista_tile15.tif,Non-Agricultural,Open Field / Tree,375,3
+AL_5_986013,14.8316579,-24.7349350,Brava_tile0.tif,Non-Agricultural,Open Field / Tree,38,182
+AL_5_290471,17.1119081,-25.2482661,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,145,338
+AL_5_453581,15.0876090,-23.6603021,Santiago_tile24.tif,Agricultural,Agricultural Doubtful,363,385
+AL_5_827496,17.1224925,-25.1115588,Santo_Antao_tile39.tif,Agricultural,Agricultural Doubtful,27,309
+AL_5_524929,16.1177466,-22.8893322,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,320,421
+AL_6_803299,14.9394891,-24.4309139,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,396,330
+AL_6_116930,14.9982732,-23.6058516,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,355,483
+AL_6_370941,16.0106588,-22.9209273,Boa_Vista_tile7.tif,Non-Agricultural,Open Field / Tree,458,82
+AL_6_166754,14.9970990,-23.5979381,Santiago_tile42.tif,Non-Agricultural,Open Field / Tree,363,80
+AL_6_651507,14.9808954,-23.6402087,Santiago_tile31.tif,Non-Agricultural,Open Field / Tree,44,117
+AL_6_244927,15.0181827,-23.6650163,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,133,337
+AL_6_745738,16.8320749,-24.9352179,Sao_Vicente_tile13.tif,Non-Agricultural,Open Field / Tree,203,136
+AL_6_195610,15.1161211,-23.5211807,Santiago_tile54.tif,Agricultural,Agricultural Doubtful,48,422
+AL_6_620707,15.1656934,-23.5789681,Santiago_tile46.tif,Non-Agricultural,Open Field / Tree,496,283
+AL_6_29764,15.0150998,-24.3730473,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,28,447
+AL_6_432325,16.1392294,-22.7213459,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,81,260
+AL_6_873697,17.0539302,-25.2043834,Santo_Antao_tile24.tif,Non-Agricultural,Open Field / Tree,288,306
+AL_6_173448,17.0335413,-25.2220209,Santo_Antao_tile23.tif,Agricultural,Agricultural Doubtful,10,124
+AL_6_979269,16.1616677,-22.7067662,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,356,413
+AL_6_864281,15.1280507,-23.7602038,Santiago_tile5.tif,Agricultural,Agricultural Certain,414,284
+AL_6_449458,14.9815475,-23.5269395,Santiago_tile51.tif,Non-Agricultural,Open Field / Tree,39,360
+AL_6_121533,15.0683799,-23.7502303,Santiago_tile3.tif,Agricultural,Agricultural Doubtful,77,396
+AL_6_646855,14.9582597,-24.4432834,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,186,200
+AL_6_878906,16.6281661,-22.9113121,Sal_tile13.tif,Non-Agricultural,Open Field / Tree,499,9
+AL_6_449256,15.1585735,-23.5932972,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,74,134
+AL_6_760772,15.0020424,-23.6315468,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,310,207
+AL_6_702838,15.0082871,-23.6305080,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,241,219
+AL_6_3038,15.0212750,-23.6165400,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,99,371
+AL_6_321157,15.0113965,-23.6350070,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,206,171
+AL_6_117429,14.9499729,-24.4360945,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,279,276
+AL_7_791404,17.1572239,-25.1641137,Santo_Antao_tile33.tif,Agricultural,Agricultural Doubtful,140,242
+AL_7_657266,16.8351012,-24.9326574,Sao_Vicente_tile13.tif,Agricultural,Agricultural Doubtful,170,164
+AL_7_893088,15.0613111,-23.7596204,Santiago_tile3.tif,Non-Agricultural,Open Field / Tree,154,294
+AL_7_142646,14.8695826,-24.7058020,Brava_tile5.tif,Non-Agricultural,Open Field / Tree,382,1
+AL_7_410790,16.1634544,-22.7427812,Boa_Vista_tile34.tif,Agricultural,Agricultural Certain,333,28
+AL_7_992041,17.1100932,-25.0600695,Santo_Antao_tile46.tif,Agricultural,Agricultural Doubtful,165,358
+AL_7_483807,14.9821783,-24.4434801,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,389,195
+AL_7_601588,17.1367076,-25.0553942,Santo_Antao_tile47.tif,Non-Agricultural,Open Field / Tree,371,403
+AL_7_931689,17.1167948,-25.1607730,Santo_Antao_tile32.tif,Agricultural,Agricultural Doubtful,89,279
+AL_7_38746,17.1776836,-25.0632299,Santo_Antao_tile48.tif,Non-Agricultural,Open Field / Tree,414,319
+AL_7_263531,14.9692774,-24.4489380,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,63,141
+AL_7_458603,16.1620291,-22.7067693,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,352,413
+AL_7_2644,17.1538007,-25.1067131,Santo_Antao_tile40.tif,Agricultural,Agricultural Doubtful,180,357
+AL_7_923724,16.6540862,-24.3439238,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,367,421
+AL_7_166227,15.1370168,-23.1518105,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,218,78
+AL_7_485969,15.1158532,-23.5208986,Santiago_tile54.tif,Agricultural,Agricultural Certain,51,425
+AL_7_667726,15.2817147,-23.7430379,Santiago_tile8.tif,Agricultural,Agricultural Doubtful,213,471
+AL_7_759669,15.1308447,-23.5293524,Santiago_tile55.tif,Agricultural,Agricultural Doubtful,383,330
+AL_7_334285,17.1323952,-25.0992060,Santo_Antao_tile40.tif,Agricultural,Agricultural Doubtful,419,432
+AL_7_968341,16.1155331,-22.9045478,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,343,258
+AL_7_736503,17.1454127,-25.0978032,Santo_Antao_tile40.tif,Non-Agricultural,Open Field / Tree,275,450
+AL_7_480180,17.1142936,-25.1595917,Santo_Antao_tile32.tif,Agricultural,Agricultural Doubtful,117,291
+AL_7_396394,15.0351397,-24.3487459,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,270,193
+AL_7_361054,14.9906703,-24.4490023,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,294,137
+AL_7_368141,15.0259797,-24.3331831,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,374,359
+AL_8_746941,15.2548532,-23.7238025,Santiago_tile17.tif,Non-Agricultural,Open Field / Tree,7,193
+AL_8_965476,15.2745699,-23.7364319,Santiago_tile18.tif,Non-Agricultural,Open Field / Tree,287,54
+AL_8_437333,14.9215403,-23.5044971,Santiago_tile60.tif,Non-Agricultural,Open Field / Tree,201,112
+AL_8_444390,15.2471511,-23.7258430,Santiago_tile17.tif,Non-Agricultural,Open Field / Tree,92,170
+AL_8_88647,15.2615965,-23.7337516,Santiago_tile18.tif,Non-Agricultural,Open Field / Tree,431,81
+AL_8_241160,15.0842419,-23.6081052,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,401,458
+AL_8_179046,17.1445518,-25.1267740,Santo_Antao_tile40.tif,Agricultural,Agricultural Doubtful,278,141
+AL_8_668901,15.0525045,-23.6029777,Santiago_tile43.tif,Non-Agricultural,Open Field / Tree,248,28
+AL_8_271543,16.5917114,-24.2986570,Sao_Nicolau_tile12.tif,Non-Agricultural,Open Field / Tree,126,401
+AL_8_321214,15.1382843,-23.5823557,Santiago_tile45.tif,Agricultural,Agricultural Doubtful,300,249
+AL_8_194916,15.1204502,-23.5459672,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,496,150
+AL_8_111682,15.1025377,-23.6194859,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,197,338
+AL_8_634555,17.0882763,-25.2483858,Santo_Antao_tile18.tif,Agricultural,Agricultural Doubtful,407,331
+AL_8_990442,17.1546207,-25.0974426,Santo_Antao_tile40.tif,Non-Agricultural,Open Field / Tree,173,456
+AL_8_851065,15.0237263,-24.3390930,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,398,295
+AL_8_8405,16.8335986,-24.9310338,Sao_Vicente_tile13.tif,Non-Agricultural,Open Field / Tree,187,181
+AL_8_623292,14.9615957,-23.5902623,Santiago_tile41.tif,Agricultural,Agricultural Certain,258,164
+AL_8_869898,15.0829740,-23.5448696,Santiago_tile54.tif,Non-Agricultural,Open Field / Tree,412,163
+AL_8_593002,15.1112063,-23.5244701,Santiago_tile54.tif,Agricultural,Agricultural Certain,102,386
+AL_8_475644,17.1458258,-25.1657355,Santo_Antao_tile33.tif,Non-Agricultural,Open Field / Tree,266,222
+AL_8_190873,16.0147439,-22.9489009,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,415,274
+AL_8_730484,17.0476197,-25.1736758,Santo_Antao_tile31.tif,Agricultural,Agricultural Doubtful,354,136
+AL_8_88590,15.1154700,-23.5309368,Santiago_tile54.tif,Non-Agricultural,Open Field / Tree,54,317
+AL_8_271328,15.2504902,-23.7186293,Santiago_tile17.tif,Agricultural,Agricultural Doubtful,56,248
+AL_8_398048,14.8978056,-24.3192253,Fogo_tile20.tif,Non-Agricultural,Open Field / Tree,393,509
+AL_9_106909,15.2551868,-23.7037107,Santiago_tile18.tif,Non-Agricultural,Open Field / Tree,506,403
+AL_9_566906,15.1354676,-23.5600029,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,328,1
+AL_9_975570,16.6281712,-22.9107498,Sal_tile13.tif,Non-Agricultural,Open Field / Tree,499,15
+AL_9_371064,15.1324187,-23.5897239,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,364,169
+AL_9_995754,14.9224829,-23.5091533,Santiago_tile60.tif,Non-Agricultural,Open Field / Tree,190,62
+AL_9_165313,17.1577067,-25.1669391,Santo_Antao_tile33.tif,Non-Agricultural,Open Field / Tree,134,212
+AL_9_597712,14.8428332,-24.7358693,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,298,168
+AL_9_59062,15.1035581,-23.6171740,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,186,363
+AL_9_320986,14.9745469,-24.4467009,Fogo_tile9.tif,Non-Agricultural,Open Field / Tree,5,166
+AL_9_877509,15.1505658,-23.5588825,Santiago_tile55.tif,Agricultural,Agricultural Certain,161,15
+AL_9_599379,15.0294149,-23.4620636,Santiago_tile72.tif,Agricultural,Agricultural Doubtful,5,83
+AL_9_469884,15.2938820,-23.7155594,Santiago_tile18.tif,Non-Agricultural,Open Field / Tree,76,281
+AL_9_656443,15.0895991,-23.6368986,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,338,149
+AL_9_78062,15.0836074,-23.6702925,Santiago_tile24.tif,Non-Agricultural,Open Field / Tree,406,277
+AL_9_663288,14.8592399,-24.7035841,Brava_tile4.tif,Non-Agricultural,Open Field / Tree,113,30
+AL_9_532895,15.3103622,-23.7417359,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,395,483
+AL_9_666968,15.1562335,-23.7525720,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,103,370
+AL_9_972401,14.8696726,-24.7002361,Brava_tile5.tif,Non-Agricultural,Open Field / Tree,382,61
+AL_9_280547,14.8580669,-24.4367699,Fogo_tile7.tif,Non-Agricultural,Open Field / Tree,362,268
+AL_9_676382,15.0699860,-23.5671200,Santiago_tile43.tif,Non-Agricultural,Open Field / Tree,59,416
+AL_9_846834,14.8624908,-24.6866592,Brava_tile4.tif,Non-Agricultural,Open Field / Tree,80,213
+AL_9_156789,15.0757193,-23.5553817,Santiago_tile54.tif,Non-Agricultural,Water Bodies,491,49
+AL_9_345791,15.0630947,-23.6089630,Santiago_tile33.tif,Non-Agricultural,Open Field / Tree,136,452
+AL_9_590519,16.6529831,-24.3507404,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,378,348
+AL_9_152237,14.9891303,-23.6389158,Santiago_tile32.tif,Agricultural,Agricultural Doubtful,452,126
+Highscore_482036,16.6632744,-24.3451135,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,265,410
+Highscore_799916,16.1830017,-22.8877076,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,120,441
+Highscore_42986,16.1830929,-22.8876150,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,119,442
+Highscore_263529,17.1284517,-25.0171251,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,460,313
+Highscore_434004,17.1282695,-25.0172150,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,462,312
+Highscore_672037,15.0976251,-23.6224938,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,251,305
+Highscore_464296,16.1825375,-22.8891058,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,125,426
+Highscore_941589,16.1829105,-22.8878003,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,121,440
+Highscore_121210,17.1283615,-25.0171232,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,461,313
+Highscore_904869,16.1824472,-22.8891050,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,126,426
+Highscore_612552,16.1822698,-22.8887292,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,128,430
+Highscore_287946,17.1285419,-25.0171270,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,459,313
+Highscore_613795,17.1265843,-25.0338782,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,477,134
+Highscore_114327,17.1130929,-25.0000964,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,135,501
+Highscore_445424,16.1530736,-22.8486232,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,451,365
+Highscore_178712,15.0975347,-23.6224926,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,252,305
+Highscore_858912,17.1607892,-25.0734642,Santo_Antao_tile47.tif,Non-Agricultural,Open Field / Tree,100,216
+Highscore_760300,16.1830026,-22.8876141,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,120,442
+Highscore_928055,16.1828169,-22.8881734,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,122,436
+Highscore_254453,16.1821761,-22.8891024,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,129,426
+Highscore_479835,16.1532567,-22.8483444,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,449,368
+Highscore_844827,16.1824488,-22.8889180,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,126,428
+Highscore_289087,16.1533471,-22.8483453,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,448,368
+Highscore_454710,16.1530728,-22.8487167,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,451,364
+Highscore_633640,15.0340073,-24.3520723,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,282,157
+Highscore_423709,17.1355411,-25.0550874,Santo_Antao_tile47.tif,Non-Agricultural,Open Field / Tree,384,406
+Highscore_536794,17.1283597,-25.0172169,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,461,312
+Highscore_331114,16.6348485,-24.3108179,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,112,271
+Highscore_639724,16.1529824,-22.8487158,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,452,364
+Highscore_436146,15.9781068,-22.8195439,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,297,188
+Highscore_143126,16.1534382,-22.8482526,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,447,369
+Highscore_25787,16.5947144,-22.9232563,Sal_tile6.tif,Non-Agricultural,Building / Man Made,357,364
+Highscore_464729,15.2063259,-23.6807622,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,45,168
+Highscore_112519,14.8718569,-24.6934995,Brava_tile5.tif,Non-Agricultural,Open Field / Tree,359,134
+Highscore_203575,15.1432764,-23.1205250,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,152,415
+Highscore_712291,16.1195036,-22.9051465,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,299,252
+Highscore_960310,17.0185021,-25.1685290,Santo_Antao_tile30.tif,Non-Agricultural,Open Field / Tree,179,194
+Highscore_284134,15.1268758,-23.5207499,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,428,422
+Highscore_626168,16.9887585,-25.1938341,Santo_Antao_tile22.tif,Agricultural,Agricultural Doubtful,14,425
+Highscore_630019,15.1332556,-23.5954996,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,354,107
+Highscore_541091,15.1505431,-23.6469520,Santiago_tile35.tif,Non-Agricultural,Open Field / Tree,162,43
+Highscore_547273,17.0451518,-25.1927481,Santo_Antao_tile24.tif,Agricultural,Agricultural Doubtful,388,428
+Highscore_759849,15.1348443,-23.7063615,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,340,377
+Highscore_975,17.1273497,-25.2344540,Santo_Antao_tile19.tif,Agricultural,Agricultural Certain,477,478
+Highscore_37805,16.1416435,-22.7356716,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,53,107
+Highscore_572982,16.8832391,-24.9859396,Sao_Vicente_tile10.tif,Non-Agricultural,Open Field / Tree,70,104
+Highscore_841835,15.2044440,-23.1113652,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,501,78
+Highscore_750814,16.8576298,-25.0038578,Sao_Vicente_tile6.tif,Agricultural,Agricultural Doubtful,360,414
+Highscore_620070,15.0681846,-23.5020214,Santiago_tile63.tif,Agricultural,Agricultural Certain,76,140
+Highscore_628635,16.8307551,-24.9428721,Sao_Vicente_tile13.tif,Agricultural,Agricultural Doubtful,216,54
+Highscore_810369,16.1860804,-22.8353711,Boa_Vista_tile22.tif,Non-Agricultural,Open Field / Tree,82,20
+Highscore_278137,15.0071748,-23.6793771,Santiago_tile22.tif,Agricultural,Agricultural Doubtful,253,181
+Highscore_132869,17.0891704,-25.0417943,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,391,51
+Highscore_273849,15.2687100,-23.1090281,Maio_tile18.tif,Non-Agricultural,Open Field / Tree,305,105
+Highscore_45690,15.9931564,-22.7922138,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,133,482
+Highscore_757981,16.9917998,-25.1289427,Santo_Antao_tile37.tif,Agricultural,Agricultural Certain,473,114
+Highscore_591924,15.0015077,-23.6926881,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,314,37
+Highscore_591746,14.9059273,-23.5195517,Santiago_tile50.tif,Non-Agricultural,Open Field / Tree,378,436
+Highscore_117587,15.2449701,-23.6895318,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,115,73
+Highscore_751063,15.0699728,-23.6622207,Santiago_tile23.tif,Non-Agricultural,Open Field / Tree,59,368
+Highscore_748580,15.2431068,-23.1028162,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,74,174
+Highscore_320560,16.0896921,-22.8528959,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,108,323
+Highscore_440532,16.0410106,-22.9519593,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,124,244
+Highscore_715988,15.1886720,-23.5995247,Santiago_tile46.tif,Non-Agricultural,Building / Man Made,239,65
+Highscore_975629,16.6285795,-24.2735376,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,179,160
+Highscore_658607,15.1593503,-23.1501757,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,486,93
+Highscore_166061,14.9178331,-23.6019071,Santiago_tile40.tif,Non-Agricultural,Open Field / Tree,242,39
+Highscore_52847,15.1815816,-23.6189704,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,321,342
+Highscore_132909,17.1097529,-25.2692251,Santo_Antao_tile18.tif,Agricultural,Agricultural Doubtful,164,114
+Highscore_502312,15.1280114,-23.7560193,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,415,329
+Highscore_930912,15.0002990,-24.4211096,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,192,439
+Highscore_517530,15.2067541,-23.7202999,Santiago_tile16.tif,Non-Agricultural,Open Field / Tree,41,231
+Highscore_38677,15.0150109,-24.3729530,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,29,448
+Highscore_175071,17.0185798,-25.0758087,Santo_Antao_tile44.tif,Non-Agricultural,Open Field / Tree,178,190
+Highscore_683867,16.5981982,-24.1061791,Sao_Nicolau_tile32.tif,Non-Agricultural,Open Field / Tree,54,425
+Highscore_895628,14.8090412,-24.7048625,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,286,13
+Highscore_322493,16.1210002,-22.8892695,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,284,422
+Highscore_278268,14.8923039,-24.5007098,Fogo_tile2.tif,Non-Agricultural,Open Field / Tree,448,90
+Highscore_851873,16.6734179,-22.9325716,Sal_tile7.tif,Non-Agricultural,Open Field / Tree,1,268
+Highscore_104934,16.8514930,-24.9761858,Sao_Vicente_tile10.tif,Agricultural,Agricultural Certain,424,201
+Highscore_594896,16.0210267,-22.7437817,Boa_Vista_tile31.tif,Non-Agricultural,Open Field / Tree,343,18
+Highscore_301579,16.8115510,-25.0442855,Sao_Vicente_tile0.tif,Non-Agricultural,Water Bodies,4,498
+Highscore_35543,15.0617801,-23.7057146,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,150,386
+Highscore_261788,15.0972955,-23.6814341,Santiago_tile24.tif,Non-Agricultural,Open Field / Tree,253,159
+Highscore_833797,15.0179623,-23.6452178,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,132,62
+Highscore_728105,17.0003122,-25.1005372,Santo_Antao_tile37.tif,Non-Agricultural,Open Field / Tree,385,419
+Highscore_518410,16.1723756,-22.9139743,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,235,159
+Highscore_852362,15.1012202,-23.7680377,Santiago_tile4.tif,Non-Agricultural,Open Field / Tree,210,203
+Highscore_842644,16.8280034,-25.0562495,Sao_Vicente_tile1.tif,Non-Agricultural,Open Field / Tree,253,365
+Highscore_263928,16.5686278,-24.3534884,Sao_Nicolau_tile7.tif,Non-Agricultural,Open Field / Tree,380,319
+Highscore_980529,16.0216437,-22.9353272,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,340,420
+Highscore_615927,15.0029047,-24.3978396,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,159,178
+Highscore_970518,17.0281391,-25.0398229,Santo_Antao_tile51.tif,Non-Agricultural,Open Field / Tree,69,79
+Highscore_304129,16.0014490,-22.8998194,Boa_Vista_tile6.tif,Non-Agricultural,Open Field / Tree,40,312
+Highscore_668530,15.1224630,-23.1713822,Maio_tile5.tif,Non-Agricultural,Open Field / Tree,382,297
+Highscore_398851,16.9028859,-24.9404346,Sao_Vicente_tile15.tif,Non-Agricultural,Open Field / Tree,286,78
+Highscore_943731,14.9626124,-23.6666509,Santiago_tile21.tif,Non-Agricultural,Open Field / Tree,248,318
+Highscore_997059,14.9555039,-23.5617570,Santiago_tile41.tif,Non-Agricultural,Building / Man Made,329,470
+Highscore_477575,15.0228743,-23.5148772,Santiago_tile52.tif,Agricultural,Agricultural Certain,82,490
+Highscore_633836,15.1003940,-23.7094572,Santiago_tile14.tif,Non-Agricultural,Open Field / Tree,221,345
+Highscore_853538,16.6909741,-22.9393105,Sal_tile8.tif,Non-Agricultural,Open Field / Tree,322,193
+Highscore_763004,15.2883138,-23.7572674,Santiago_tile8.tif,Non-Agricultural,Open Field / Tree,138,319
+Highscore_473356,16.6384009,-24.2286627,Sao_Nicolau_tile23.tif,Non-Agricultural,Open Field / Tree,70,133
+Highscore_387171,15.2448758,-23.7048812,Santiago_tile17.tif,Agricultural,Agricultural Doubtful,120,395
+Highscore_936995,17.0896756,-25.1240616,Santo_Antao_tile39.tif,Non-Agricultural,Open Field / Tree,388,168
+Highscore_548069,17.0889589,-25.1414903,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,402,478
+Highscore_653273,15.0478349,-23.6241143,Santiago_tile33.tif,Agricultural,Agricultural Doubtful,303,287
+Highscore_202493,15.1677702,-23.1004876,Maio_tile16.tif,Non-Agricultural,Open Field / Tree,394,196
+Highscore_645872,15.0168354,-23.5380428,Santiago_tile52.tif,Non-Agricultural,Open Field / Tree,146,240
+Highscore_275288,16.6235498,-24.2604372,Sao_Nicolau_tile18.tif,Non-Agricultural,Open Field / Tree,237,299
+Highscore_13138,15.3115722,-23.7166251,Santiago_tile19.tif,Non-Agricultural,Open Field / Tree,379,266
+Highscore_913046,16.6115322,-24.4182676,Sao_Nicolau_tile3.tif,Non-Agricultural,Open Field / Tree,368,135
+Highscore_368924,15.0327218,-23.7111100,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,471,324
+Highscore_809414,16.5613800,-24.0805924,Sao_Nicolau_tile37.tif,Non-Agricultural,Open Field / Tree,458,184
+Highscore_815948,15.0908953,-23.6573680,Santiago_tile24.tif,Non-Agricultural,Building / Man Made,327,417
+Highscore_535340,15.0729898,-23.5571155,Santiago_tile53.tif,Non-Agricultural,Open Field / Tree,22,36
+Highscore_310033,16.7510665,-22.9766790,Sal_tile3.tif,Non-Agricultural,Open Field / Tree,173,277
+Highscore_707315,15.3073695,-23.7500722,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,427,393
+Highscore_267685,15.1736213,-23.6354275,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,407,164
+Highscore_479491,14.9987629,-24.4451387,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,205,180
+Highscore_789901,16.8012082,-25.0197161,Sao_Vicente_tile4.tif,Non-Agricultural,Open Field / Tree,114,250
+Highscore_129329,15.3011205,-23.6921089,Santiago_tile29.tif,Non-Agricultural,Open Field / Tree,492,41
+Highscore_340983,14.9329597,-23.5982801,Santiago_tile40.tif,Agricultural,Agricultural Doubtful,75,80
+Highscore_771822,15.0939345,-23.7507450,Santiago_tile4.tif,Non-Agricultural,Open Field / Tree,293,388
+Highscore_336995,15.1755391,-23.6871626,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,385,95
+Highscore_508924,17.1002846,-25.0000100,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,277,499
+Highscore_309802,15.0298406,-24.3407673,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,330,278
+Highscore_271109,15.1899888,-23.6721847,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,227,258
+Highscore_112758,14.8805020,-24.6946676,Brava_tile5.tif,Non-Agricultural,Open Field / Tree,263,123
+Highscore_920143,15.1432773,-23.1204320,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,152,416
+Highscore_235284,17.0811592,-25.1830503,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,479,33
+Highscore_366619,16.1194124,-22.9052391,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,300,251
+Highscore_654741,15.1268768,-23.5206569,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,428,423
+Highscore_889147,17.0525660,-25.1568142,Santo_Antao_tile31.tif,Agricultural,Agricultural Doubtful,303,317
+Highscore_157135,15.1331653,-23.5954985,Santiago_tile45.tif,Agricultural,Agricultural Doubtful,355,107
+Highscore_284483,15.1503625,-23.6469498,Santiago_tile35.tif,Non-Agricultural,Open Field / Tree,164,43
+Highscore_943031,17.0418311,-25.2223948,Santo_Antao_tile24.tif,Agricultural,Agricultural Doubtful,418,111
+Highscore_770884,15.1349324,-23.7065486,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,339,375
+Highscore_548773,17.0845752,-25.2313286,Santo_Antao_tile25.tif,Agricultural,Agricultural Doubtful,441,16
+Highscore_769304,16.1417339,-22.7356723,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,52,107
+Highscore_972938,16.8832928,-24.9878147,Sao_Vicente_tile10.tif,Non-Agricultural,Open Field / Tree,69,84
+Highscore_875353,15.2043537,-23.1113643,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,502,78
+Highscore_699749,16.8650205,-25.0042010,Sao_Vicente_tile6.tif,Non-Agricultural,Open Field / Tree,278,412
+Highscore_506167,15.0679167,-23.5017394,Santiago_tile63.tif,Agricultural,Agricultural Certain,79,143
+Highscore_923307,16.8307533,-24.9429657,Sao_Vicente_tile13.tif,Non-Agricultural,Open Field / Tree,216,53
+Highscore_593058,16.1860812,-22.8352776,Boa_Vista_tile22.tif,Non-Agricultural,Open Field / Tree,82,21
+Highscore_312868,15.0072662,-23.6792853,Santiago_tile22.tif,Agricultural,Agricultural Doubtful,252,182
+Highscore_143046,17.0840057,-25.0338978,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,450,134
+Highscore_977402,15.2688012,-23.1089359,Maio_tile18.tif,Non-Agricultural,Open Field / Tree,304,106
+Highscore_131197,15.9848464,-22.7917660,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,225,486
+Highscore_980488,16.9926785,-25.1300869,Santo_Antao_tile37.tif,Agricultural,Agricultural Certain,463,102
+Highscore_29727,15.0014174,-23.6926870,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,315,37
+Highscore_346625,14.9064723,-23.5192793,Santiago_tile50.tif,Non-Agricultural,Open Field / Tree,372,439
+Highscore_744496,15.2450604,-23.6895329,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,114,73
+Highscore_450294,15.0699717,-23.6623137,Santiago_tile23.tif,Non-Agricultural,Open Field / Tree,59,367
+Highscore_569013,15.2366950,-23.1120590,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,144,74
+Highscore_892155,15.2657741,-23.7466453,Santiago_tile8.tif,Non-Agricultural,Open Field / Tree,389,430
+Highscore_819747,16.0921741,-22.8688082,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,79,153
+Highscore_133167,14.8736468,-24.4271781,Fogo_tile7.tif,Non-Agricultural,Open Field / Tree,191,374
+Highscore_504473,16.0410115,-22.9518658,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,124,245
+Highscore_118313,15.1643800,-23.6067608,Santiago_tile35.tif,Non-Agricultural,Building / Man Made,14,477
+Highscore_445491,15.1593494,-23.1502687,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,486,92
+Highscore_847498,14.9157519,-23.6101498,Santiago_tile30.tif,Non-Agricultural,Open Field / Tree,269,438
+Highscore_993543,15.1814913,-23.6189693,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,322,342
+Highscore_434774,15.1284664,-23.7557462,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,410,332
+Highscore_412797,14.9891857,-24.4217686,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,315,430
+Highscore_883916,16.1602976,-22.7856712,Boa_Vista_tile28.tif,Non-Agricultural,Open Field / Tree,368,59
+Highscore_459559,15.2068455,-23.7202081,Santiago_tile16.tif,Non-Agricultural,Open Field / Tree,40,232
+Highscore_930994,15.0158845,-24.3749173,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,19,427
+Highscore_936252,17.0184896,-25.0758067,Santo_Antao_tile44.tif,Non-Agricultural,Open Field / Tree,179,190
+Highscore_830622,16.5981996,-24.1060855,Sao_Nicolau_tile32.tif,Non-Agricultural,Open Field / Tree,54,426
+Highscore_728594,15.0598777,-23.6371829,Santiago_tile33.tif,Non-Agricultural,Open Field / Tree,168,148
+Highscore_957132,14.8079779,-24.7036385,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,298,26
+Highscore_693772,16.1155732,-22.8898725,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,344,415
+Highscore_291811,16.6734171,-22.9326654,Sal_tile7.tif,Non-Agricultural,Water Bodies,1,267
+Highscore_233914,16.8570440,-24.9783631,Sao_Vicente_tile10.tif,Agricultural,Agricultural Doubtful,362,179
+Highscore_330753,16.0210275,-22.7436882,Boa_Vista_tile31.tif,Non-Agricultural,Open Field / Tree,343,19
+Highscore_952145,15.0616887,-23.7058064,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,151,385
+Highscore_551973,15.0972052,-23.6814330,Santiago_tile24.tif,Non-Agricultural,Open Field / Tree,254,159
+Highscore_884573,14.9961653,-23.6398385,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,374,117
+Highscore_213499,17.0002259,-25.1003479,Santo_Antao_tile37.tif,Non-Agricultural,Open Field / Tree,386,421
+Highscore_115494,15.0528701,-23.6026104,Santiago_tile43.tif,Non-Agricultural,Open Field / Tree,244,32
+Highscore_356087,15.0028144,-24.3978382,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,160,178
+Highscore_627656,17.0282274,-25.0399186,Santo_Antao_tile51.tif,Non-Agricultural,Open Field / Tree,68,78
+Highscore_362165,16.0015402,-22.8997268,Boa_Vista_tile6.tif,Non-Agricultural,Open Field / Tree,39,313
+Highscore_945303,15.1203681,-23.1731281,Maio_tile5.tif,Non-Agricultural,Open Field / Tree,405,278
+Highscore_321375,15.2254556,-23.7495633,Santiago_tile7.tif,Non-Agricultural,Open Field / Tree,335,400
+Highscore_174599,14.9627049,-23.6664662,Santiago_tile21.tif,Non-Agricultural,Open Field / Tree,247,320
+Highscore_34453,14.9541730,-23.5596041,Santiago_tile51.tif,Non-Agricultural,Open Field / Tree,338,5
+Highscore_477027,16.6917197,-22.9368806,Sal_tile8.tif,Non-Agricultural,Open Field / Tree,314,219
+Highscore_966304,15.2883149,-23.7571743,Santiago_tile8.tif,Non-Agricultural,Open Field / Tree,138,320
+Highscore_424106,16.6384111,-24.2280073,Sao_Nicolau_tile23.tif,Non-Agricultural,Open Field / Tree,70,140
+Highscore_491471,15.1677693,-23.1005806,Maio_tile16.tif,Non-Agricultural,Open Field / Tree,394,195
+Highscore_942020,15.0168333,-23.5382287,Santiago_tile52.tif,Non-Agricultural,Open Field / Tree,146,238
+Highscore_946583,15.3113927,-23.7165297,Santiago_tile19.tif,Non-Agricultural,Open Field / Tree,381,267
+Highscore_600091,14.9009752,-24.4647414,Fogo_tile2.tif,Agricultural,Agricultural Doubtful,358,479
+Highscore_881868,17.1290755,-25.1862798,Santo_Antao_tile26.tif,Non-Agricultural,Open Field / Tree,458,496
+Highscore_836173,15.3073683,-23.7501653,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,427,392
+Highscore_64432,15.3011216,-23.6920158,Santiago_tile29.tif,Non-Agricultural,Open Field / Tree,492,42
+Highscore_358135,16.6620877,-24.3459357,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,278,401
+Highscore_556204,15.0968176,-23.6220190,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,260,310
+Highscore_936823,15.0321280,-24.3570591,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,302,103
+Highscore_689145,15.9784714,-22.8191735,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,293,192
+Highscore_574317,16.6209442,-22.9105846,Sal_tile12.tif,Non-Agricultural,Open Field / Tree,64,21
+Highscore_461579,15.1861647,-23.6747408,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,269,230
+Highscore_803842,14.8679889,-24.7206211,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,22,337
+Highscore_859221,15.1441808,-23.1204410,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,142,416
+Highscore_18306,17.0810710,-25.1829546,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,480,34
+Highscore_837808,16.1195028,-22.9052400,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,299,251
+Highscore_176130,17.0169752,-25.1682139,Santo_Antao_tile30.tif,Agricultural,Agricultural Doubtful,196,197
+Highscore_536441,15.1270543,-23.5209380,Santiago_tile55.tif,Non-Agricultural,Open Field / Tree,426,420
+Highscore_27818,15.1807589,-23.1507644,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,249,89
+Highscore_71098,17.0524759,-25.1568122,Santo_Antao_tile31.tif,Agricultural,Agricultural Doubtful,304,317
+Highscore_168810,16.9890251,-25.1940275,Santo_Antao_tile22.tif,Non-Agricultural,Open Field / Tree,11,423
+Highscore_319167,15.1331643,-23.5955915,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,355,106
+Highscore_881681,17.0848201,-25.2282395,Santo_Antao_tile25.tif,Agricultural,Agricultural Doubtful,439,49
+Highscore_121577,16.8832909,-24.9879084,Sao_Vicente_tile10.tif,Non-Agricultural,Open Field / Tree,69,83
+Highscore_209181,15.2042624,-23.1114565,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,503,77
+Highscore_787556,16.8578248,-25.0031124,Sao_Vicente_tile6.tif,Agricultural,Agricultural Doubtful,358,422
+Highscore_880096,15.0676406,-23.5022010,Santiago_tile63.tif,Agricultural,Agricultural Certain,82,138
+Highscore_597066,16.8310328,-24.9425031,Sao_Vicente_tile13.tif,Agricultural,Agricultural Doubtful,213,58
+Highscore_878217,16.1859900,-22.8353702,Boa_Vista_tile22.tif,Non-Agricultural,Open Field / Tree,83,20
+Highscore_106542,17.1492257,-25.1975203,Santo_Antao_tile26.tif,Agricultural,Agricultural Doubtful,232,381
+Highscore_578369,15.0151794,-23.6669307,Santiago_tile22.tif,Agricultural,Agricultural Doubtful,166,316
+Highscore_604193,17.0890802,-25.0417923,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,392,51
+Highscore_783567,15.2688003,-23.1090290,Maio_tile18.tif,Non-Agricultural,Open Field / Tree,304,105
+Highscore_964386,15.9917885,-22.7936963,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,148,466
+Highscore_505679,16.9928125,-25.1279338,Santo_Antao_tile37.tif,Agricultural,Agricultural Doubtful,462,125
+Highscore_576060,15.0016829,-23.6931550,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,312,32
+Highscore_527741,14.9065514,-23.5203021,Santiago_tile50.tif,Non-Agricultural,Open Field / Tree,371,428
+Highscore_807870,15.2452433,-23.6893492,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,112,75
+Highscore_915593,15.0694956,-23.6720685,Santiago_tile23.tif,Non-Agricultural,Open Field / Tree,63,262
+Highscore_384385,15.2431972,-23.1028171,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,73,174
+Highscore_566269,16.0880170,-22.8584882,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,126,263
+Highscore_714286,14.8738287,-24.4270882,Fogo_tile7.tif,Non-Agricultural,Open Field / Tree,189,375
+Highscore_405183,16.0411018,-22.9518667,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,123,245
+Highscore_550746,15.1764704,-23.5923065,Santiago_tile46.tif,Non-Agricultural,Building / Man Made,375,141
+Highscore_397226,16.6198767,-24.2929586,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,281,459
+Highscore_981461,15.1593485,-23.1503617,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,486,91
+Highscore_159441,14.9172701,-23.6037582,Santiago_tile40.tif,Agricultural,Agricultural Doubtful,248,19
+Highscore_794761,15.1814902,-23.6190623,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,322,341
+Highscore_991076,17.0976253,-25.2669789,Santo_Antao_tile18.tif,Agricultural,Agricultural Doubtful,299,135
+Highscore_262662,15.1281955,-23.7557427,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,413,332
+Highscore_825435,15.0002088,-24.4211082,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,193,439
+Highscore_224264,16.1600195,-22.7865102,Boa_Vista_tile28.tif,Non-Agricultural,Open Field / Tree,371,50
+Highscore_389554,15.2068444,-23.7203011,Santiago_tile16.tif,Non-Agricultural,Open Field / Tree,40,231
+Highscore_162678,15.0157040,-24.3749145,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,21,427
+Highscore_529342,17.0188428,-25.0761894,Santo_Antao_tile44.tif,Non-Agricultural,Building / Man Made,175,186
+Highscore_897204,14.8080667,-24.7037328,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,297,25
+Highscore_421950,16.1209107,-22.8891752,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,285,423
+Highscore_129286,16.8576562,-24.9839971,Sao_Vicente_tile10.tif,Non-Agricultural,Building / Man Made,354,119
+Highscore_550930,16.8110155,-25.0439932,Sao_Vicente_tile0.tif,Non-Agricultural,Water Bodies,10,501
+Highscore_125390,15.0616898,-23.7057134,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,151,386
+Highscore_536601,15.0972063,-23.6813400,Santiago_tile24.tif,Non-Agricultural,Open Field / Tree,254,160
+Highscore_871336,15.0299163,-23.6425769,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,0,92
+Highscore_663339,17.0003141,-25.1004435,Santo_Antao_tile37.tif,Non-Agricultural,Open Field / Tree,385,420
+Highscore_552869,17.0281372,-25.0399166,Santo_Antao_tile51.tif,Non-Agricultural,Open Field / Tree,69,78
+Highscore_218717,16.0017217,-22.8996351,Boa_Vista_tile6.tif,Non-Agricultural,Open Field / Tree,37,314
+Highscore_487869,15.2255459,-23.7495645,Santiago_tile7.tif,Non-Agricultural,Open Field / Tree,334,400
+Highscore_466332,16.6918101,-22.9368815,Sal_tile8.tif,Non-Agricultural,Open Field / Tree,313,219
+Highscore_950833,15.2920025,-23.7584322,Santiago_tile8.tif,Non-Agricultural,Open Field / Tree,97,307
+Highscore_45928,16.6633647,-24.3451151,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,264,410
+Highscore_864006,15.0977154,-23.6224949,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,250,305
+Highscore_495718,17.1003748,-25.0000119,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,276,499
+Highscore_240535,15.0192856,-24.3341008,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,448,348
+Highscore_8419,17.1103968,-24.9858730,Santo_Antao_tile60.tif,Non-Agricultural,Open Field / Tree,158,156
+Highscore_139242,15.9781076,-22.8194504,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,297,189
+Highscore_459396,16.6208530,-22.9106774,Sal_tile12.tif,Non-Agricultural,Open Field / Tree,65,20
+Highscore_451657,16.6348470,-24.3109115,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,112,270
+Highscore_565179,14.8678972,-24.7207123,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,23,336
+Highscore_377091,15.1860733,-23.6748327,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,270,229
+Highscore_624724,15.0323085,-24.3570619,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,300,103
+Highscore_395895,16.1194133,-22.9051457,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,300,252
+Highscore_547497,17.0811611,-25.1829566,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,479,34
+Highscore_709475,17.0170654,-25.1682159,Santo_Antao_tile30.tif,Agricultural,Agricultural Doubtful,195,197
+Highscore_638438,15.1146572,-23.5228372,Santiago_tile54.tif,Agricultural,Agricultural Doubtful,64,404
+Highscore_600962,17.0542117,-25.1601325,Santo_Antao_tile31.tif,Agricultural,Agricultural Doubtful,284,282
+Highscore_497055,15.1430966,-23.1204302,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,154,416
+Highscore_919079,15.1332546,-23.5955926,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,354,106
+Highscore_175260,17.1198697,-25.2298761,Santo_Antao_tile25.tif,Agricultural,Agricultural Doubtful,50,40
+Highscore_690159,15.1474875,-23.7290258,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,197,135
+Highscore_216933,17.0417171,-25.2061725,Santo_Antao_tile24.tif,Agricultural,Agricultural Certain,423,284
+Highscore_53185,16.1465826,-22.7172021,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,0,305
+Highscore_798610,16.8710793,-25.0126673,Sao_Vicente_tile6.tif,Non-Agricultural,Open Field / Tree,209,323
+Highscore_912850,17.1342303,-25.2073138,Santo_Antao_tile26.tif,Non-Agricultural,Open Field / Tree,396,273
+Highscore_38159,16.9588093,-25.3064640,Santo_Antao_tile8.tif,Non-Agricultural,Open Field / Tree,342,210
+Highscore_38309,14.9061080,-23.5195538,Santiago_tile50.tif,Non-Agricultural,Open Field / Tree,376,436
+Highscore_569910,16.6140150,-24.2925777,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,346,462
+Highscore_408,16.1859908,-22.8352767,Boa_Vista_tile22.tif,Non-Agricultural,Open Field / Tree,83,21
+Highscore_22806,15.1280148,-23.7557404,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,415,332
+Highscore_890065,15.9931556,-22.7923072,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,133,481
+Highscore_994359,15.2494980,-23.6658649,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,68,328
+Highscore_925401,16.0411922,-22.9518676,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,122,245
+Highscore_942165,15.2044431,-23.1114583,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,501,77
+Highscore_323098,15.1594380,-23.1504557,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,485,90
+Highscore_140363,16.0897841,-22.8527098,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,107,325
+Highscore_92990,17.0188465,-25.0760020,Santo_Antao_tile44.tif,Non-Agricultural,Building / Man Made,175,188
+Highscore_355808,15.1814924,-23.6188763,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,322,343
+Highscore_413607,14.9980791,-24.4186596,Fogo_tile10.tif,Non-Agricultural,Open Field / Tree,217,465
+Highscore_135935,15.0015926,-23.6931538,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,313,32
+Highscore_145923,15.0380047,-23.6922164,Santiago_tile23.tif,Non-Agricultural,Open Field / Tree,409,41
+Highscore_620441,15.0150096,-24.3730459,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,29,447
+Highscore_403679,15.0617779,-23.7059005,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,150,384
+Highscore_892228,14.9172711,-23.6036653,Santiago_tile40.tif,Agricultural,Agricultural Doubtful,248,20
+Highscore_970025,15.0178720,-23.6452167,Santiago_tile32.tif,Non-Agricultural,Open Field / Tree,133,62
+Highscore_11979,14.8079765,-24.7037312,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,298,25
+Highscore_681683,15.2040730,-23.7179401,Santiago_tile16.tif,Non-Agricultural,Open Field / Tree,71,256
+Highscore_674702,15.0889552,-23.4944542,Santiago_tile64.tif,Non-Agricultural,Open Field / Tree,346,219
+Highscore_362337,16.8128300,-25.0434698,Sao_Vicente_tile1.tif,Non-Agricultural,Open Field / Tree,424,498
+Highscore_351040,16.0924419,-22.8691845,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,76,149
+Highscore_112545,15.0071737,-23.6794700,Santiago_tile22.tif,Agricultural,Agricultural Doubtful,253,180
+Highscore_833646,17.0001357,-25.1003459,Santo_Antao_tile37.tif,Non-Agricultural,Open Field / Tree,387,421
+Highscore_840502,17.1096747,-25.2686606,Santo_Antao_tile18.tif,Agricultural,Agricultural Doubtful,165,120
+Highscore_782410,15.2687108,-23.1089350,Maio_tile18.tif,Non-Agricultural,Open Field / Tree,305,106
+Highscore_637279,15.2254545,-23.7496563,Santiago_tile7.tif,Non-Agricultural,Open Field / Tree,335,399
+Highscore_540347,14.8739190,-24.4270896,Fogo_tile7.tif,Non-Agricultural,Building / Man Made,188,375
+Highscore_441633,16.1209115,-22.8890817,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,285,424
+Highscore_753393,17.0280489,-25.0398210,Santo_Antao_tile51.tif,Non-Agricultural,Open Field / Tree,70,79
+Highscore_283711,15.2895654,-23.7583073,Santiago_tile8.tif,Non-Agricultural,Open Field / Tree,124,308
+Highscore_706805,16.8311248,-24.9424114,Sao_Vicente_tile13.tif,Agricultural,Agricultural Doubtful,212,59
+Highscore_547541,16.8524686,-24.9770493,Sao_Vicente_tile10.tif,Agricultural,Agricultural Doubtful,413,192
+Highscore_688716,15.9786497,-22.8194553,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,291,189
+Highscore_782458,16.6069695,-22.9072602,Sal_tile12.tif,Non-Agricultural,Open Field / Tree,219,55
+Highscore_411869,16.6347567,-24.3109099,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,113,270
+Highscore_344165,14.8679859,-24.7208066,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,22,335
+Highscore_946503,15.2064162,-23.6807634,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,44,168
+Highscore_532947,15.0324891,-24.3570648,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,298,103
+Highscore_463337,16.1205720,-22.9069328,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,287,233
+Highscore_62831,17.0876802,-25.1861032,Santo_Antao_tile25.tif,Non-Agricultural,Open Field / Tree,417,499
+Highscore_840450,15.1430940,-23.1207093,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,154,413
+Highscore_839775,16.9950176,-25.1920988,Santo_Antao_tile23.tif,Non-Agricultural,Open Field / Tree,444,434
+Highscore_648443,17.1272595,-25.2344520,Santo_Antao_tile19.tif,Agricultural,Agricultural Doubtful,478,478
+Highscore_290778,17.0448502,-25.2029611,Santo_Antao_tile24.tif,Non-Agricultural,Open Field / Tree,389,319
+Highscore_828103,16.1561075,-22.7127026,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,417,349
+Highscore_290438,15.0967251,-23.6222038,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,261,308
+ProbableAgri_178483,14.8428392,-24.7354983,Brava_tile1.tif,Agricultural,Agricultural Certain,298,172
+ProbableAgri_849181,15.0411063,-24.3420576,Fogo_tile23.tif,Agricultural,Agricultural Certain,205,266
+ProbableAgri_300028,15.1007105,-23.7056495,Santiago_tile14.tif,Agricultural,Agricultural Certain,218,386
+ProbableAgri_404375,17.1116342,-25.2441332,Santo_Antao_tile18.tif,Agricultural,Agricultural Doubtful,149,382
+ProbableAgri_161183,16.9934131,-25.1294468,Santo_Antao_tile37.tif,Agricultural,Agricultural Certain,455,109
+ProbableAgri_940470,16.6518306,-24.3214105,Sao_Nicolau_tile14.tif,Agricultural,Other,387,153
+ProbableAgri_123225,16.8290352,-24.9290660,Sao_Vicente_tile13.tif,Agricultural,Agricultural Doubtful,238,201
+ProbableAgri_870720,15.0702735,-23.7355679,Santiago_tile13.tif,Agricultural,Agricultural Doubtful,52,66
+ProbableAgri_485263,15.2123257,-23.6546990,Santiago_tile27.tif,Agricultural,Agricultural Doubtful,481,443
+ProbableAgri_66266,15.9923314,-22.7936077,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,142,467
+ProbableAgri_664331,15.9784690,-22.8194537,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,293,189
+ProbableAgri_636083,16.6264589,-22.9102643,Sal_tile13.tif,Non-Agricultural,Open Field / Tree,518,20
+ProbableAgri_724852,15.2434903,-23.6545317,Santiago_tile27.tif,Agricultural,Agricultural Doubtful,136,449
+ProbableAgri_617519,15.1537381,-23.1417465,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,34,188
+ProbableAgri_18443,16.9991736,-25.1961282,Santo_Antao_tile23.tif,Non-Agricultural,Building / Man Made,397,392
+ProbableAgri_40612,14.9464252,-23.6605048,Santiago_tile21.tif,Non-Agricultural,Building / Man Made,428,382
+ProbableAgri_663041,15.3021986,-23.6925879,Santiago_tile29.tif,Non-Agricultural,Open Field / Tree,480,36
+ProbableAgri_685021,16.8109143,-25.0445530,Sao_Vicente_tile0.tif,Non-Agricultural,Open Field / Tree,11,495
+ProbableAgri_180962,16.8290502,-25.0580515,Sao_Vicente_tile1.tif,Non-Agricultural,Open Field / Tree,241,346
+ProbableAgri_774671,16.1153391,-22.9060415,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,345,242
+ProbableAgri_962481,14.8519951,-24.3590844,Fogo_tile19.tif,Agricultural,Agricultural Doubtful,426,79
+ProbableAgri_216618,15.9888452,-22.8425287,Boa_Vista_tile12.tif,Non-Agricultural,Water Bodies,181,433
+ProbableAgri_785675,15.0178248,-23.4478022,Santiago_tile72.tif,Agricultural,Agricultural Certain,135,235
+ProbableAgri_578103,17.1096707,-25.2688481,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,165,118
+ProbableAgri_893550,16.9030717,-24.9401573,Sao_Vicente_tile15.tif,Non-Agricultural,Open Field / Tree,284,81
+ProbableAgri_900990,17.0173983,-25.0762518,Santo_Antao_tile44.tif,Non-Agricultural,Open Field / Tree,191,185
+ProbableAgri_7745,16.6374081,-24.2286460,Sao_Nicolau_tile23.tif,Non-Agricultural,Open Field / Tree,81,133
+ProbableAgri_596417,16.1562217,-22.7431853,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,413,23
+ProbableAgri_810823,14.8099479,-24.7045997,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,276,16
+ProbableAgri_435577,16.1493669,-22.8798154,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,489,31
+ProbableAgri_763840,17.1163189,-25.1968742,Santo_Antao_tile25.tif,Non-Agricultural,Open Field / Tree,97,391
+ProbableAgri_806878,15.1453510,-23.1209178,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,129,411
+ProbableAgri_305731,16.1515367,-22.8487024,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,468,364
+ProbableAgri_228737,16.5554877,-24.0821837,Sao_Nicolau_tile36.tif,Non-Agricultural,Open Field / Tree,57,173
+ProbableAgri_720526,15.2681424,-23.1117217,Maio_tile18.tif,Non-Agricultural,Open Field / Tree,311,76
+ProbableAgri_87957,16.0036829,-22.9128262,Boa_Vista_tile6.tif,Non-Agricultural,Open Field / Tree,14,173
+ProbableAgri_855206,14.9752238,-23.4692493,Santiago_tile61.tif,Non-Agricultural,Open Field / Tree,110,493
+ProbableAgri_147786,16.7377190,-22.9741033,Sal_tile3.tif,Non-Agricultural,Open Field / Tree,321,303
+ProbableAgri_76037,16.6891356,-22.9330108,Sal_tile8.tif,Non-Agricultural,Open Field / Tree,343,260
+ProbableAgri_794142,15.3318172,-23.7450870,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,157,450
+ProbableAgri_514606,15.2144983,-23.0990890,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,391,211
+ProbableAgri_815254,16.7483799,-22.9360460,Sal_tile9.tif,Agricultural,Agricultural Doubtful,203,229
+ProbableAgri_5948,15.1558439,-23.7548918,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,107,345
+ProbableAgri_724469,15.3093789,-23.7555889,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,404,334
+ProbableAgri_381771,16.6104524,-24.4180612,Sao_Nicolau_tile3.tif,Non-Agricultural,Open Field / Tree,380,137
+ProbableAgri_929191,14.8994680,-24.4867166,Fogo_tile2.tif,Non-Agricultural,Open Field / Tree,371,242
+ProbableAgri_459420,15.2259664,-23.1570857,Maio_tile12.tif,Non-Agricultural,Open Field / Tree,262,20
+ProbableAgri_367819,15.2783719,-23.1664633,Maio_tile8.tif,Non-Agricultural,Open Field / Tree,200,352
+ProbableAgri_933182,16.7380303,-22.9024644,Sal_tile15.tif,Non-Agricultural,Open Field / Tree,316,105
+ProbableAgri_686679,15.9860306,-22.8857548,Boa_Vista_tile6.tif,Non-Agricultural,Open Field / Tree,212,461
+ProbableAgri_801758,15.1765025,-23.7642735,Santiago_tile6.tif,Non-Agricultural,Open Field / Tree,376,241
+ProbableAgri_607753,16.7534711,-22.9035556,Sal_tile15.tif,Non-Agricultural,Open Field / Tree,145,95
+ProbableAgri_297277,16.1817177,-22.8898461,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,134,418
+ProbableAgri_241148,16.1728910,-22.7600696,Boa_Vista_tile28.tif,Non-Agricultural,Open Field / Tree,231,334
+ProbableAgri_426591,15.9791501,-22.8560784,Boa_Vista_tile12.tif,Non-Agricultural,Open Field / Tree,287,287
+ProbableAgri_373948,15.1594217,-23.2174352,Maio_tile1.tif,Non-Agricultural,Open Field / Tree,487,233
+ProbableAgri_160362,15.2597248,-23.2161580,Maio_tile3.tif,Non-Agricultural,Open Field / Tree,406,248
+ProbableAgri_996724,15.0337977,-23.7117742,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,459,317
+ProbableAgri_398311,15.2425865,-23.1004843,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,80,199
+ProbableAgri_298711,15.0496974,-23.5559078,Santiago_tile53.tif,Non-Agricultural,Open Field / Tree,280,46
+ProbableAgri_241245,16.0825459,-22.8537642,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,187,313
+ProbableAgri_46488,16.0409273,-22.7302179,Boa_Vista_tile31.tif,Non-Agricultural,Open Field / Tree,124,165
+ProbableAgri_436770,16.0189644,-22.7418016,Boa_Vista_tile31.tif,Non-Agricultural,Open Field / Tree,366,39
+ProbableAgri_727281,16.6144681,-24.1350011,Sao_Nicolau_tile33.tif,Non-Agricultural,Open Field / Tree,335,113
+ProbableAgri_28088,16.0111446,-22.8023713,Boa_Vista_tile19.tif,Non-Agricultural,Open Field / Tree,455,370
+ProbableAgri_474361,15.3014077,-23.1387726,Maio_tile14.tif,Non-Agricultural,Open Field / Tree,459,215
+ProbableAgri_572343,15.1777654,-23.7422488,Santiago_tile6.tif,Non-Agricultural,Open Field / Tree,365,478
+ProbableAgri_380580,16.0483621,-22.8775566,Boa_Vista_tile13.tif,Non-Agricultural,Open Field / Tree,41,60
+ProbableAgri_559816,16.0998290,-22.8405583,Boa_Vista_tile15.tif,Non-Agricultural,Open Field / Tree,519,451
+ProbableAgri_434387,16.1706565,-22.7788447,Boa_Vista_tile28.tif,Agricultural,Agricultural Doubtful,254,133
+ProbableAgri_779014,16.0907975,-22.7206476,Boa_Vista_tile32.tif,Non-Agricultural,Open Field / Tree,95,267
+ProbableAgri_457942,15.1778293,-23.0973306,Maio_tile16.tif,Non-Agricultural,Open Field / Tree,283,231
+ProbableAgri_914971,15.0208481,-23.7221122,Santiago_tile12.tif,Non-Agricultural,Open Field / Tree,102,211
+ProbableAgri_216072,14.8573301,-24.3275162,Fogo_tile19.tif,Non-Agricultural,Open Field / Tree,372,420
+ProbableAgri_590541,16.7872012,-24.9745624,Sao_Vicente_tile8.tif,Non-Agricultural,Open Field / Tree,268,222
+ProbableAgri_6291,15.2219703,-23.2057127,Maio_tile2.tif,Non-Agricultural,Open Field / Tree,310,361
+ProbableAgri_246621,17.0896737,-25.1241554,Santo_Antao_tile39.tif,Non-Agricultural,Open Field / Tree,388,167
+ProbableAgri_540786,14.9153363,-24.2931263,Fogo_tile26.tif,Non-Agricultural,Open Field / Tree,195,281
+ProbableAgri_603401,14.8975765,-24.3163439,Fogo_tile26.tif,Non-Agricultural,Open Field / Tree,388,28
+ProbableAgri_876995,14.8166481,-24.7200203,Brava_tile0.tif,Non-Agricultural,Open Field / Tree,207,340
+ProbableAgri_622092,14.9215601,-24.4285867,Fogo_tile8.tif,Non-Agricultural,Building / Man Made,128,359
+ProbableAgri_952194,16.7691488,-22.8985532,Sal_tile16.tif,Non-Agricultural,Open Field / Tree,488,146
+ProbableAgri_404281,15.1882393,-23.7127148,Santiago_tile16.tif,Non-Agricultural,Open Field / Tree,247,310
+ProbableAgri_628846,14.8427505,-24.7354040,Brava_tile1.tif,Agricultural,Agricultural Certain,299,173
+ProbableAgri_266150,15.0411077,-24.3419648,Fogo_tile23.tif,Agricultural,Agricultural Doubtful,205,267
+ProbableAgri_920207,15.0241771,-23.5839521,Santiago_tile42.tif,Agricultural,Agricultural Certain,65,234
+ProbableAgri_5700,15.2612086,-23.7506796,Santiago_tile8.tif,Agricultural,Agricultural Certain,439,386
+ProbableAgri_997292,17.1101958,-25.2439130,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,165,384
+ProbableAgri_325750,16.9934150,-25.1293531,Santo_Antao_tile37.tif,Agricultural,Agricultural Certain,455,110
+ProbableAgri_212465,17.1489522,-25.1321252,Santo_Antao_tile40.tif,Agricultural,Agricultural Certain,228,85
+ProbableAgri_284479,16.6518321,-24.3213169,Sao_Nicolau_tile14.tif,Agricultural,Agricultural Certain,387,154
+ProbableAgri_898532,16.8289450,-24.9290641,Sao_Vicente_tile13.tif,Agricultural,Agricultural Doubtful,239,201
+ProbableAgri_808529,15.0702746,-23.7354749,Santiago_tile13.tif,Agricultural,Agricultural Certain,52,67
+ProbableAgri_744117,15.2126859,-23.6547966,Santiago_tile27.tif,Agricultural,Agricultural Doubtful,477,442
+ProbableAgri_916909,15.9923306,-22.7937012,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,142,466
+ProbableAgri_430307,15.9785594,-22.8194545,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,292,189
+ProbableAgri_507454,16.6264589,-22.9102643,Sal_tile12.tif,Non-Agricultural,Open Field / Tree,3,25
+ProbableAgri_556557,15.2434000,-23.6545306,Santiago_tile27.tif,Agricultural,Agricultural Certain,137,449
+ProbableAgri_551715,16.9990854,-25.1960325,Santo_Antao_tile23.tif,Non-Agricultural,Building / Man Made,398,393
+ProbableAgri_355031,14.9463349,-23.6605037,Santiago_tile21.tif,Non-Agricultural,Open Field / Tree,429,382
+ProbableAgri_671518,15.3021997,-23.6924949,Santiago_tile29.tif,Non-Agricultural,Open Field / Tree,480,37
+ProbableAgri_85264,16.8108241,-25.0445511,Sao_Vicente_tile0.tif,Non-Agricultural,Open Field / Tree,12,495
+ProbableAgri_917167,16.8289601,-25.0580496,Sao_Vicente_tile1.tif,Non-Agricultural,Open Field / Tree,242,346
+ProbableAgri_658258,16.1204850,-22.9065581,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,288,237
+ProbableAgri_774032,14.8519965,-24.3589916,Fogo_tile19.tif,Agricultural,Agricultural Doubtful,426,80
+ProbableAgri_586142,15.9888460,-22.8424353,Boa_Vista_tile12.tif,Agricultural,Agricultural Doubtful,181,434
+ProbableAgri_189648,15.0177345,-23.4478012,Santiago_tile72.tif,Agricultural,Agricultural Certain,136,235
+ProbableAgri_740204,17.1099233,-25.2696979,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,162,109
+ProbableAgri_889172,16.9029779,-24.9403428,Sao_Vicente_tile15.tif,Non-Agricultural,Open Field / Tree,285,79
+ProbableAgri_850781,17.0174001,-25.0761581,Santo_Antao_tile44.tif,Non-Agricultural,Open Field / Tree,191,186
+ProbableAgri_943343,16.6373178,-24.2286445,Sao_Nicolau_tile23.tif,Non-Agricultural,Open Field / Tree,82,133
+ProbableAgri_619343,16.1409666,-22.7188366,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,62,287
+ProbableAgri_95792,14.8081509,-24.7041053,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,296,21
+ProbableAgri_630222,17.0282840,-25.3218330,Santo_Antao_tile9.tif,Agricultural,Agricultural Doubtful,67,52
+ProbableAgri_113995,16.1492765,-22.8798146,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,490,31
+ProbableAgri_545820,17.1384145,-25.2099408,Santo_Antao_tile26.tif,Agricultural,Agricultural Doubtful,349,246
+ProbableAgri_678031,15.1453518,-23.1208248,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,129,412
+ProbableAgri_929647,16.1516279,-22.8486098,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,467,365
+ProbableAgri_287626,16.5555780,-24.0821852,Sao_Nicolau_tile36.tif,Non-Agricultural,Open Field / Tree,56,173
+ProbableAgri_935072,15.1504473,-23.6474158,Santiago_tile35.tif,Non-Agricultural,Open Field / Tree,163,38
+ProbableAgri_611048,15.2678723,-23.1116260,Maio_tile18.tif,Non-Agricultural,Open Field / Tree,314,77
+ProbableAgri_384361,16.0037725,-22.9129205,Boa_Vista_tile6.tif,Non-Agricultural,Open Field / Tree,13,172
+ProbableAgri_471871,14.9754105,-23.4686939,Santiago_tile71.tif,Non-Agricultural,Open Field / Tree,103,11
+ProbableAgri_1445,16.7375338,-22.9745702,Sal_tile3.tif,Non-Agricultural,Open Field / Tree,323,298
+ProbableAgri_796740,16.6735065,-22.9327600,Sal_tile8.tif,Non-Agricultural,Open Field / Tree,516,261
+ProbableAgri_830236,15.3319978,-23.7450893,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,155,450
+ProbableAgri_937642,15.2057019,-23.1121222,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,487,70
+ProbableAgri_288558,16.7484702,-22.9360470,Sal_tile9.tif,Agricultural,Agricultural Doubtful,202,229
+ProbableAgri_545595,15.1558495,-23.7544269,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,107,350
+ProbableAgri_839815,15.3094692,-23.7555901,Santiago_tile9.tif,Non-Agricultural,Open Field / Tree,403,334
+ProbableAgri_171244,16.6103637,-24.4179660,Sao_Nicolau_tile3.tif,Non-Agricultural,Open Field / Tree,381,138
+ProbableAgri_647905,14.8967277,-24.4947479,Fogo_tile2.tif,Non-Agricultural,Building / Man Made,400,155
+ProbableAgri_162925,15.2260567,-23.1570866,Maio_tile12.tif,Non-Agricultural,Open Field / Tree,261,20
+ProbableAgri_315640,15.2782815,-23.1664624,Maio_tile8.tif,Non-Agricultural,Open Field / Tree,201,352
+ProbableAgri_14856,16.7383022,-22.9023733,Sal_tile15.tif,Non-Agricultural,Open Field / Tree,313,106
+ProbableAgri_98492,16.7534720,-22.9034618,Sal_tile15.tif,Non-Agricultural,Open Field / Tree,145,96
+ProbableAgri_795961,16.1823576,-22.8890106,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,127,427
+ProbableAgri_162623,16.1728918,-22.7599761,Boa_Vista_tile28.tif,Non-Agricultural,Open Field / Tree,231,335
+ProbableAgri_466543,15.9790597,-22.8560775,Boa_Vista_tile12.tif,Non-Agricultural,Open Field / Tree,288,287
+ProbableAgri_541745,14.8343593,-24.6906350,Brava_tile4.tif,Non-Agricultural,Open Field / Tree,391,165
+ProbableAgri_881902,15.1558818,-23.2190727,Maio_tile0.tif,Non-Agricultural,Open Field / Tree,11,220
+ProbableAgri_437749,15.2583881,-23.2142826,Maio_tile3.tif,Non-Agricultural,Open Field / Tree,421,268
+ProbableAgri_4011,15.0409959,-23.7140959,Santiago_tile13.tif,Non-Agricultural,Open Field / Tree,379,293
+ProbableAgri_370009,15.2367854,-23.1120599,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,143,74
+ProbableAgri_451132,15.0496070,-23.5559067,Santiago_tile53.tif,Non-Agricultural,Open Field / Tree,281,46
+ProbableAgri_739010,16.0827193,-22.8546070,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,185,304
+ProbableAgri_396608,16.6217965,-24.1990764,Sao_Nicolau_tile23.tif,Non-Agricultural,Open Field / Tree,259,446
+ProbableAgri_998409,16.0409265,-22.7303113,Boa_Vista_tile31.tif,Non-Agricultural,Open Field / Tree,124,164
+ProbableAgri_932566,16.0189636,-22.7418950,Boa_Vista_tile31.tif,Non-Agricultural,Open Field / Tree,366,38
+ProbableAgri_482586,16.6142890,-24.1349045,Sao_Nicolau_tile33.tif,Non-Agricultural,Open Field / Tree,337,114
+ProbableAgri_875351,17.0890491,-25.1414923,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,401,478
+ProbableAgri_846585,16.5982885,-24.1061806,Sao_Nicolau_tile32.tif,Non-Agricultural,Open Field / Tree,53,425
+ProbableAgri_129849,16.0044274,-22.8059547,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,7,336
+ProbableAgri_929872,15.3010490,-23.1384897,Maio_tile14.tif,Non-Agricultural,Open Field / Tree,463,218
+ProbableAgri_559378,15.1769254,-23.7444700,Santiago_tile6.tif,Non-Agricultural,Open Field / Tree,374,454
+ProbableAgri_699309,16.0483613,-22.8776500,Boa_Vista_tile13.tif,Non-Agricultural,Open Field / Tree,41,59
+ProbableAgri_304369,16.0998298,-22.8404649,Boa_Vista_tile15.tif,Non-Agricultural,Open Field / Tree,519,452
+ProbableAgri_488463,16.1657184,-22.7858134,Boa_Vista_tile28.tif,Non-Agricultural,Open Field / Tree,308,58
+ProbableAgri_171082,16.0908887,-22.7205549,Boa_Vista_tile32.tif,Non-Agricultural,Open Field / Tree,94,268
+ProbableAgri_239432,16.7872030,-24.9744688,Sao_Vicente_tile8.tif,Non-Agricultural,Open Field / Tree,268,223
+ProbableAgri_875522,14.9152460,-24.2931249,Fogo_tile26.tif,Non-Agricultural,Open Field / Tree,196,281
+ProbableAgri_53876,14.8975779,-24.3162511,Fogo_tile26.tif,Non-Agricultural,Open Field / Tree,388,29
+ProbableAgri_107784,15.0410161,-24.3420562,Fogo_tile23.tif,Agricultural,Agricultural Doubtful,206,266
+ProbableAgri_879305,15.0617735,-23.5981635,Santiago_tile43.tif,Agricultural,Agricultural Certain,146,81
+ProbableAgri_16504,15.2612098,-23.7505866,Santiago_tile8.tif,Agricultural,Agricultural Doubtful,439,387
+HN_940318,17.1418933,-25.0216365,Santo_Antao_tile54.tif,Non-Agricultural,Open Field / Tree,310,268
+HN_987121,15.0304187,-24.3566608,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,321,107
+HN_516471,16.1834469,-22.8884599,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,115,433
+HN_717646,15.9782907,-22.8191719,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,295,192
+HN_880602,16.5937880,-22.9159383,Sal_tile6.tif,Non-Agricultural,Open Field / Tree,368,442
+HN_423902,15.1441834,-23.1201620,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,142,419
+HN_314033,17.1093730,-24.9920428,Santo_Antao_tile60.tif,Non-Agricultural,Open Field / Tree,168,90
+HN_880350,16.1535254,-22.8486274,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,446,365
+HN_243275,14.8423509,-24.7211095,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,306,327
+HN_384868,16.1706083,-22.7074975,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,257,406
+HN_348483,17.0172841,-25.1663458,Santo_Antao_tile30.tif,Non-Agricultural,Building / Man Made,193,217
+HN_591973,17.1199755,-25.2291282,Santo_Antao_tile25.tif,Agricultural,Agricultural Certain,49,48
+HN_365592,17.0525622,-25.1570016,Santo_Antao_tile31.tif,Agricultural,Agricultural Doubtful,303,315
+HN_908461,15.1343062,-23.7360166,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,342,58
+HN_852991,17.0053746,-25.2146392,Santo_Antao_tile23.tif,Non-Agricultural,Open Field / Tree,324,196
+HN_73959,15.2046247,-23.1113670,Maio_tile17.tif,Non-Agricultural,Open Field / Tree,499,78
+HN_925676,16.1399367,-22.9038461,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,73,268
+HN_410401,17.0240645,-25.2266827,Santo_Antao_tile23.tif,Agricultural,Agricultural Certain,114,72
+HN_955028,17.0188541,-25.0756271,Santo_Antao_tile44.tif,Non-Agricultural,Open Field / Tree,175,192
+HN_274183,14.9195756,-23.5352254,Santiago_tile50.tif,Non-Agricultural,Building / Man Made,225,269
+HN_411911,16.0899656,-22.8526180,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,105,326
+HN_184109,15.2066904,-23.6804878,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,41,171
+HN_266615,16.1413740,-22.7354822,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,56,109
+HN_337716,15.1988789,-23.6229046,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,129,302
+HN_363885,16.6156083,-24.2945711,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,328,441
+HN_553635,17.0474308,-25.2002999,Santo_Antao_tile24.tif,Agricultural,Agricultural Certain,361,348
+HN_165991,14.8679002,-24.7205268,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,23,338
+HN_291242,15.0331417,-24.3495507,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,292,184
+HN_998948,16.1833573,-22.8883656,Boa_Vista_tile10.tif,Non-Agricultural,Open Field / Tree,116,434
+HN_432334,16.6524081,-24.3022235,Sao_Nicolau_tile14.tif,Non-Agricultural,Open Field / Tree,384,358
+HN_311752,16.1521684,-22.8488018,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,461,363
+HN_723472,15.9778420,-22.8187941,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,300,196
+HN_12346,16.5936968,-22.9160311,Sal_tile6.tif,Non-Agricultural,Open Field / Tree,369,441
+HN_42811,15.1875382,-23.6731770,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,254,247
+HN_318834,14.8421674,-24.7212919,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,308,325
+HN_199565,17.1238172,-25.1613984,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,11,274
+HN_656178,16.1551121,-22.7128811,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,428,347
+HN_693142,17.0184042,-25.1689018,Santo_Antao_tile30.tif,Agricultural,Agricultural Doubtful,180,190
+HN_257305,15.0875856,-23.6313886,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,361,208
+HN_270845,15.2241817,-23.6450797,Santiago_tile37.tif,Non-Agricultural,Open Field / Tree,345,61
+HN_901087,16.6202142,-24.2887510,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,278,504
+HN_601025,16.9588975,-25.3065597,Santo_Antao_tile8.tif,Non-Agricultural,Building / Man Made,341,209
+HN_324105,14.8090591,-24.7037496,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,286,25
+HN_145532,15.1595274,-23.1505496,Maio_tile11.tif,Non-Agricultural,Open Field / Tree,484,89
+HN_659229,17.1153583,-25.1953519,Santo_Antao_tile25.tif,Non-Agricultural,Open Field / Tree,108,407
+HN_644870,16.6091063,-24.3567185,Sao_Nicolau_tile8.tif,Agricultural,Agricultural Doubtful,397,284
+HN_44917,15.2449420,-23.6767856,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,117,210
+HN_290825,15.0403106,-23.6497690,Santiago_tile33.tif,Non-Agricultural,Open Field / Tree,383,10
+HN_740930,15.1844479,-23.6210520,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,289,320
+HN_76619,17.0851690,-25.2288100,Santo_Antao_tile25.tif,Agricultural,Agricultural Certain,435,43
+HN_516880,17.0336714,-25.1633338,Santo_Antao_tile30.tif,Non-Agricultural,Open Field / Tree,12,253
+HN_228970,17.0989474,-25.2168357,Santo_Antao_tile25.tif,Agricultural,Agricultural Doubtful,285,174
+HN_329461,15.0335080,-24.3553158,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,287,122
+HN_186793,17.1550856,-25.0655519,Santo_Antao_tile47.tif,Non-Agricultural,Open Field / Tree,165,299
+HN_498646,16.1321902,-22.8601150,Boa_Vista_tile15.tif,Non-Agricultural,Open Field / Tree,159,245
+HN_497325,16.1518110,-22.8483310,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,465,368
+HN_600855,15.9776395,-22.8106652,Boa_Vista_tile18.tif,Non-Agricultural,Water Bodies,303,283
+HN_294303,15.1449965,-23.1201701,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,133,419
+HN_853560,16.5936056,-22.9161239,Sal_tile6.tif,Non-Agricultural,Open Field / Tree,370,440
+HN_198049,17.0765556,-25.1832288,Santo_Antao_tile31.tif,Non-Agricultural,Open Field / Tree,31,41
+HN_378270,15.1885383,-23.6726315,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,243,253
+HN_595654,14.8422592,-24.7212007,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,307,326
+HN_887958,16.1601015,-22.7104929,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,373,373
+HN_993133,17.0175354,-25.1672888,Santo_Antao_tile30.tif,Agricultural,Agricultural Certain,190,207
+HN_623559,17.1433198,-25.2082692,Santo_Antao_tile26.tif,Non-Agricultural,Open Field / Tree,295,265
+HN_181379,14.9064621,-23.5202082,Santiago_tile50.tif,Non-Agricultural,Open Field / Tree,372,429
+HN_660358,17.1186364,-25.2413847,Santo_Antao_tile18.tif,Agricultural,Agricultural Doubtful,72,413
+HN_194380,15.1283686,-23.7415191,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,413,485
+HN_47950,16.1201144,-22.9075828,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,292,226
+HN_619993,15.1337104,-23.5952261,Santiago_tile45.tif,Non-Agricultural,Open Field / Tree,349,110
+HN_611804,15.2355922,-23.6502461,Santiago_tile37.tif,Agricultural,Agricultural Certain,218,7
+HN_781113,16.0805041,-22.8495395,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,210,358
+HN_52238,15.2207625,-23.6895962,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,383,69
+HN_930929,16.1409339,-22.9034817,Boa_Vista_tile9.tif,Non-Agricultural,Open Field / Tree,62,272
+HN_76923,15.0156151,-24.3748202,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,22,428
+HN_402626,15.0014141,-23.6929657,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,315,34
+HN_929513,14.8085193,-24.7036477,Brava_tile3.tif,Non-Agricultural,Open Field / Tree,292,26
+HN_837267,15.2359796,-23.6709042,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,217,272
+HN_57815,15.1843565,-23.6211439,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,290,319
+HN_370122,14.8785295,-24.6994593,Brava_tile5.tif,Agricultural,Agricultural Doubtful,284,71
+HN_102001,16.6597239,-24.3357809,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,306,509
+HN_811731,15.0327777,-24.3558617,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,295,116
+HN_893209,17.1608775,-25.0735599,Santo_Antao_tile47.tif,Non-Agricultural,Building / Man Made,99,215
+HN_241055,16.1438914,-22.8653662,Boa_Vista_tile15.tif,Non-Agricultural,Open Field / Tree,29,190
+HN_608219,16.1548937,-22.8471442,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,431,381
+HN_827874,15.9779198,-22.8202895,Boa_Vista_tile18.tif,Non-Agricultural,Open Field / Tree,299,180
+HN_777492,16.5941528,-22.9155671,Sal_tile6.tif,Non-Agricultural,Open Field / Tree,364,446
+HN_925755,17.1161130,-25.1500647,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,99,393
+HN_948483,15.1284600,-23.7414273,Santiago_tile5.tif,Non-Agricultural,Open Field / Tree,412,486
+HN_661114,15.0966359,-23.6221097,Santiago_tile34.tif,Non-Agricultural,Open Field / Tree,262,309
+HN_566112,16.1472131,-22.7397405,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,513,59
+HN_593244,16.9591719,-25.3063785,Santo_Antao_tile8.tif,Non-Agricultural,Open Field / Tree,338,211
+HN_943571,15.1990562,-23.6231859,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,127,299
+HN_529708,17.1549090,-25.0653604,Santo_Antao_tile47.tif,Non-Agricultural,Open Field / Tree,167,301
+HN_708958,14.8470519,-24.7428074,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,250,94
+HN_442601,17.1273983,-25.1626976,Santo_Antao_tile33.tif,Agricultural,Agricultural Doubtful,471,250
+HN_836232,16.1605548,-22.7103098,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,368,375
+HN_240520,17.0178864,-25.1677653,Santo_Antao_tile30.tif,Agricultural,Agricultural Doubtful,186,202
+HN_635346,17.1434060,-25.2084587,Santo_Antao_tile26.tif,Non-Agricultural,Open Field / Tree,294,263
+HN_130083,16.1167621,-22.9085789,Boa_Vista_tile9.tif,Non-Agricultural,Building / Man Made,329,215
+HN_631185,16.0403858,-22.9511122,Boa_Vista_tile1.tif,Non-Agricultural,Open Field / Tree,131,253
+HN_190753,15.1367202,-23.7231228,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,317,197
+HN_408022,16.0827258,-22.8538594,Boa_Vista_tile14.tif,Non-Agricultural,Open Field / Tree,185,312
+HN_487514,15.2172468,-23.6814586,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,423,156
+HN_828403,16.6204820,-24.2889429,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,275,502
+HN_994394,15.0157957,-24.3748230,Fogo_tile16.tif,Non-Agricultural,Open Field / Tree,20,428
+HN_105325,15.0016774,-23.6936195,Santiago_tile22.tif,Non-Agricultural,Open Field / Tree,312,27
+HN_618318,15.1990584,-23.6229999,Santiago_tile36.tif,Non-Agricultural,Open Field / Tree,127,301
+HN_348067,15.2412414,-23.6765527,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,158,212
+HN_31137,16.6515261,-24.3459394,Sao_Nicolau_tile9.tif,Non-Agricultural,Open Field / Tree,395,399
+HN_331479,15.0336503,-24.3517881,Fogo_tile23.tif,Non-Agricultural,Open Field / Tree,286,160
+HN_537391,16.1443375,-22.8660249,Boa_Vista_tile15.tif,Non-Agricultural,Open Field / Tree,24,183
+HN_960414,16.1548912,-22.8474246,Boa_Vista_tile16.tif,Non-Agricultural,Open Field / Tree,431,378
+HN_941701,15.1440922,-23.1202541,Maio_tile10.tif,Non-Agricultural,Open Field / Tree,143,418
+HN_935001,16.5935144,-22.9162167,Sal_tile6.tif,Non-Agricultural,Open Field / Tree,371,439
+HN_677887,15.1910571,-23.6735003,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,215,244
+HN_282198,14.8369120,-24.7225935,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,366,310
+HN_156430,17.1443407,-25.1764907,Santo_Antao_tile33.tif,Non-Agricultural,Open Field / Tree,280,107
+HN_579699,17.0197162,-25.1708996,Santo_Antao_tile30.tif,Agricultural,Agricultural Doubtful,165,169
+HN_432357,17.1275339,-25.2342706,Santo_Antao_tile19.tif,Agricultural,Agricultural Doubtful,475,480
+HN_17373,16.1154135,-22.9078182,Boa_Vista_tile9.tif,Non-Agricultural,Building / Man Made,344,223
+HN_728766,15.2063281,-23.6805762,Santiago_tile26.tif,Non-Agricultural,Open Field / Tree,45,170
+HN_989127,16.1412851,-22.7352945,Boa_Vista_tile33.tif,Non-Agricultural,Open Field / Tree,57,111
+HN_731314,16.6200337,-24.2887480,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,280,504
+HN_560283,17.1236216,-24.9968505,Santo_Antao_tile60.tif,Non-Agricultural,Open Field / Tree,9,42
+HN_513863,17.1269494,-25.1625938,Santo_Antao_tile33.tif,Agricultural,Agricultural Doubtful,476,251
+HN_77024,15.2226557,-23.6898993,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,362,66
+HN_25402,17.1089537,-25.0268373,Santo_Antao_tile53.tif,Non-Agricultural,Open Field / Tree,175,215
+HN_143360,17.0876861,-25.1858220,Santo_Antao_tile32.tif,Non-Agricultural,Open Field / Tree,406,5
+HN_592057,14.8469632,-24.7427131,Brava_tile1.tif,Non-Agricultural,Open Field / Tree,251,95
+HN_13426,15.1368139,-23.7228450,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,316,200
+HN_3277,16.1537896,-22.7422290,Boa_Vista_tile34.tif,Non-Agricultural,Open Field / Tree,440,33
+HN_252519,15.2225396,-23.6464546,Santiago_tile37.tif,Non-Agricultural,Open Field / Tree,363,46
+HN_372495,16.6201225,-24.2888431,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,279,503
+HN_610371,15.2416027,-23.6765573,Santiago_tile27.tif,Non-Agricultural,Open Field / Tree,154,212
+HN_47348,17.1460865,-25.1662103,Santo_Antao_tile33.tif,Agricultural,Agricultural Doubtful,263,217
+HN_566329,17.1128372,-24.9993404,Santo_Antao_tile60.tif,Non-Agricultural,Open Field / Tree,128,13
+HN_32803,15.1342114,-23.7363873,Santiago_tile15.tif,Non-Agricultural,Open Field / Tree,343,54
+HN_685143,16.6196947,-24.2930491,Sao_Nicolau_tile13.tif,Non-Agricultural,Open Field / Tree,283,458
+HN_670730,15.2224482,-23.6465465,Santiago_tile37.tif,Non-Agricultural,Open Field / Tree,364,45
+manual_752028,16.9920042,-25.1587559,Santo_Antao_tile30.tif,Agricultural,Agricultural Certain,475,292
+manual_148271,16.9924664,-25.1582036,Santo_Antao_tile30.tif,Agricultural,Agricultural Certain,470,298
+manual_844851,16.9939914,-25.1586123,Santo_Antao_tile30.tif,Agricultural,Other,453,294
+manual_759960,16.9931038,-25.1269091,Santo_Antao_tile37.tif,Agricultural,Agricultural Certain,459,136
+manual_98918,16.9951319,-25.1292033,Santo_Antao_tile37.tif,Agricultural,Agricultural Certain,436,112
+manual_886179,17.0285451,-25.0691801,Santo_Antao_tile44.tif,Agricultural,Agricultural Certain,69,263
+manual_423292,17.1403590,-25.0262008,Santo_Antao_tile54.tif,Agricultural,Agricultural Certain,326,219
+manual_827130,17.1786123,-25.0797658,Santo_Antao_tile48.tif,Agricultural,Agricultural Certain,400,143
+manual_475606,17.1802742,-25.0734212,Santo_Antao_tile48.tif,Agricultural,Agricultural Certain,383,211
+manual_546207,17.1678357,-25.0951997,Santo_Antao_tile40.tif,Agricultural,Agricultural Certain,27,483
+manual_51901,17.1609015,-25.0990819,Santo_Antao_tile40.tif,Agricultural,Agricultural Certain,103,440
+manual_661951,17.1616151,-25.0994729,Santo_Antao_tile40.tif,Agricultural,Agricultural Certain,95,436
+manual_496185,17.1584757,-25.1074728,Santo_Antao_tile40.tif,Agricultural,Agricultural Certain,128,350
+manual_920337,17.1235655,-25.2342744,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,19,490
+manual_959488,17.1176916,-25.2434267,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,82,391
+manual_962519,17.1175562,-25.2455808,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,83,368
+manual_107244,17.1188630,-25.2477677,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,68,345
+manual_202645,17.1101739,-25.2706415,Santo_Antao_tile18.tif,Agricultural,Agricultural Certain,159,99
+manual_265410,17.0277367,-25.2235779,Santo_Antao_tile23.tif,Agricultural,Agricultural Certain,74,106
+manual_484196,16.9925891,-25.1566128,Santo_Antao_tile30.tif,Agricultural,Agricultural Certain,469,315
+manual_423822,16.8583483,-25.0132414,Sao_Vicente_tile6.tif,Agricultural,Agricultural Certain,350,314
+manual_463214,16.8585323,-25.0130579,Sao_Vicente_tile6.tif,Agricultural,Agricultural Certain,348,316
+manual_751228,16.8311338,-24.9419432,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,212,64
+manual_845843,16.8323095,-24.9370963,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,200,116
+manual_842243,16.8328650,-24.9363584,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,194,124
+manual_27134,16.8328901,-24.9350474,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,194,138
+manual_730206,16.8327152,-24.9347627,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,196,141
+manual_34257,16.8355015,-24.9306047,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,166,186
+manual_147066,16.8358730,-24.9300503,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,162,192
+manual_195852,16.8361036,-24.9274320,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,160,220
+manual_596117,16.8357129,-24.9195548,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,166,304
+manual_655880,16.8387285,-24.9080938,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,135,427
+manual_431028,16.8387339,-24.9078129,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,135,430
+manual_585935,16.8384901,-24.9064026,Sao_Vicente_tile13.tif,Agricultural,Agricultural Certain,138,445
+manual_374478,16.1714963,-22.7756730,Boa_Vista_tile28.tif,Agricultural,Agricultural Certain,245,167
+manual_416294,16.1786845,-22.7697525,Boa_Vista_tile28.tif,Agricultural,Agricultural Certain,166,231
+manual_842205,16.1778096,-22.7662849,Boa_Vista_tile28.tif,Agricultural,Agricultural Certain,176,268
+manual_740057,16.1769301,-22.7633782,Boa_Vista_tile28.tif,Agricultural,Agricultural Certain,186,299
+manual_820929,16.1635118,-22.7468024,Boa_Vista_tile28.tif,Agricultural,Agricultural Doubtful,336,475
+manual_836157,16.1645931,-22.7471859,Boa_Vista_tile28.tif,Agricultural,Agricultural Doubtful,324,471
+manual_181079,16.1567899,-22.7400112,Boa_Vista_tile34.tif,Agricultural,Agricultural Certain,407,57
+manual_447721,15.2035397,-23.1114493,Maio_tile17.tif,Agricultural,Agricultural Certain,511,77
+manual_602390,15.1600695,-23.1410661,Maio_tile11.tif,Agricultural,Agricultural Certain,479,191
+manual_452273,15.1527248,-23.1437829,Maio_tile10.tif,Agricultural,Agricultural Certain,45,166
+manual_445738,15.1600854,-23.1393917,Maio_tile11.tif,Agricultural,Agricultural Certain,479,209
+manual_678132,15.0153829,-23.4480533,Santiago_tile72.tif,Agricultural,Agricultural Certain,162,232
+manual_73239,15.0146653,-23.4475803,Santiago_tile72.tif,Agricultural,Agricultural Certain,170,237
+manual_740512,15.0163825,-23.4475070,Santiago_tile72.tif,Agricultural,Agricultural Certain,151,238
+manual_900922,15.0178098,-23.4491963,Santiago_tile72.tif,Agricultural,Agricultural Certain,135,220
+manual_309095,15.0181671,-23.4495722,Santiago_tile72.tif,Agricultural,Agricultural Certain,131,216
+manual_773680,15.0263216,-23.4640731,Santiago_tile72.tif,Agricultural,Agricultural Certain,39,61
+manual_462081,15.0275080,-23.4629712,Santiago_tile72.tif,Agricultural,Agricultural Certain,26,73
+manual_369163,15.0278783,-23.4621389,Santiago_tile72.tif,Agricultural,Agricultural Certain,22,82
+manual_593517,15.0285989,-23.4623331,Santiago_tile72.tif,Agricultural,Agricultural Certain,14,80
+manual_423288,15.0293165,-23.4628061,Santiago_tile72.tif,Agricultural,Agricultural Certain,6,75
+manual_227084,15.0336996,-23.4584874,Santiago_tile73.tif,Agricultural,Agricultural Certain,457,117
+manual_95413,15.0350716,-23.4569229,Santiago_tile73.tif,Agricultural,Agricultural Certain,442,134
+manual_844403,15.0353446,-23.4567401,Santiago_tile73.tif,Agricultural,Agricultural Certain,439,136
+manual_973836,15.0334216,-23.4507688,Santiago_tile73.tif,Agricultural,Agricultural Certain,461,200
+manual_614509,15.0350817,-23.4559934,Santiago_tile73.tif,Agricultural,Agricultural Certain,442,144
+manual_490338,15.0348167,-23.4554326,Santiago_tile73.tif,Agricultural,Agricultural Certain,445,150
+manual_975444,15.0342496,-23.4577501,Santiago_tile73.tif,Agricultural,Agricultural Certain,451,125
+manual_468101,15.0325082,-23.4600540,Santiago_tile73.tif,Agricultural,Agricultural Certain,470,100
+manual_930546,15.0319582,-23.4607914,Santiago_tile73.tif,Agricultural,Agricultural Certain,476,92
+manual_381669,15.0323316,-23.4596802,Santiago_tile73.tif,Agricultural,Agricultural Certain,472,104
+manual_661966,15.0316973,-23.4598588,Santiago_tile73.tif,Agricultural,Agricultural Certain,479,102
+manual_595330,15.0297030,-23.4604866,Santiago_tile72.tif,Agricultural,Agricultural Certain,2,100
+manual_888847,15.0305710,-23.4637500,Santiago_tile73.tif,Agricultural,Agricultural Certain,491,60
+manual_672808,15.0321919,-23.4642334,Santiago_tile73.tif,Agricultural,Agricultural Certain,473,55
+manual_842742,15.0301504,-23.4857754,Santiago_tile62.tif,Agricultural,Agricultural Certain,0,316
+manual_525638,15.0345014,-23.4761584,Santiago_tile63.tif,Agricultural,Agricultural Certain,452,414
+manual_162930,15.0375928,-23.4743349,Santiago_tile63.tif,Agricultural,Agricultural Certain,418,434
+manual_851279,15.0371340,-23.4749803,Santiago_tile63.tif,Agricultural,Agricultural Certain,423,427
+manual_318120,15.0392338,-23.4729595,Santiago_tile63.tif,Agricultural,Agricultural Certain,400,449
+manual_962542,15.0718314,-23.4989960,Santiago_tile63.tif,Agricultural,Agricultural Certain,36,173
+manual_810843,15.0764852,-23.4947736,Santiago_tile64.tif,Agricultural,Agricultural Certain,484,214
+manual_965960,15.0184548,-23.5467059,Santiago_tile52.tif,Agricultural,Agricultural Certain,127,147
+manual_481235,15.0212857,-23.5520373,Santiago_tile52.tif,Agricultural,Agricultural Certain,95,90
+manual_620961,15.0058102,-23.6801964,Santiago_tile22.tif,Agricultural,Agricultural Certain,268,172
+manual_432306,15.0065393,-23.6796479,Santiago_tile22.tif,Agricultural,Agricultural Certain,260,178
+manual_845101,15.0123285,-23.6712632,Santiago_tile22.tif,Agricultural,Agricultural Certain,197,269
+manual_711239,15.0345277,-23.6883621,Santiago_tile23.tif,Agricultural,Agricultural Certain,448,82
+manual_9945,15.0358746,-23.6890296,Santiago_tile23.tif,Agricultural,Agricultural Certain,433,75
+manual_86894,15.1428881,-23.5667880,Santiago_tile45.tif,Agricultural,Agricultural Certain,251,417
+manual_288096,15.1430423,-23.5691148,Santiago_tile45.tif,Agricultural,Agricultural Certain,249,392
+manual_864344,15.1284778,-23.6025086,Santiago_tile45.tif,Agricultural,Agricultural Certain,406,31
+manual_749987,15.1643047,-23.6054578,Santiago_tile35.tif,Agricultural,Agricultural Certain,15,491
+manual_579068,15.1618733,-23.6204015,Santiago_tile35.tif,Agricultural,Agricultural Certain,40,330
+manual_901353,15.1623378,-23.6192912,Santiago_tile35.tif,Agricultural,Agricultural Certain,35,342
+manual_417134,15.1946033,-23.6177358,Santiago_tile36.tif,Agricultural,Agricultural Certain,177,357
+manual_477882,15.2127245,-23.6591691,Santiago_tile27.tif,Agricultural,Agricultural Certain,476,395
+manual_727842,14.9368450,-24.4980889,Fogo_tile3.tif,Agricultural,Agricultural Certain,423,118
+manual_385156,14.9375798,-24.4972653,Fogo_tile3.tif,Agricultural,Agricultural Certain,415,127
+manual_473183,14.9015799,-24.4605739,Fogo_tile8.tif,Agricultural,Agricultural Certain,344,11
+manual_421732,14.9004235,-24.4594415,Fogo_tile8.tif,Agricultural,Agricultural Certain,357,23
+manual_649177,14.8735612,-24.4509377,Fogo_tile7.tif,Agricultural,Agricultural Certain,188,118
+manual_984743,14.8761900,-24.4442039,Fogo_tile7.tif,Agricultural,Agricultural Certain,160,191
+manual_964197,14.8542430,-24.3903972,Fogo_tile13.tif,Agricultural,Agricultural Certain,404,255
+manual_99398,14.8618096,-24.4158536,Fogo_tile7.tif,Agricultural,Agricultural Certain,324,494
+manual_137314,14.8620389,-24.4186416,Fogo_tile7.tif,Agricultural,Agricultural Certain,321,464
+manual_695330,14.8649186,-24.4192438,Fogo_tile7.tif,Agricultural,Agricultural Certain,289,458
+manual_206227,14.8596413,-24.4401360,Fogo_tile7.tif,Agricultural,Agricultural Certain,344,232
+manual_746635,14.8622321,-24.4419404,Fogo_tile7.tif,Agricultural,Agricultural Certain,315,213

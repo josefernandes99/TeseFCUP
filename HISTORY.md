@@ -159,3 +159,114 @@ Notes
     - File: `scripts/ready_to_run_phase1.py`
 - New SVM hyperparameter: `cache_size` (default 2048 MB) configurable in `config.py` and passed through to `sklearn.svm.SVC`.
   - File: `scripts/config.py`
+## 2025‑09‑12 — Final grid integration, GPU tools, persistents refactor, and SVG overhaul
+
+- Pipeline integration and toggles
+  - Hooked a compact final grid search round into the orchestrator so it runs automatically after post‑processing. Only the model chosen for the run is searched; winner is inferred once over full tiles. (scripts/ready_to_run_phase1.py, scripts/final_grid_search.py)
+  - Added BEST_THRESHOLD_OUTPUTS_ENABLED (default: True). When enabled, each round writes two stats sets under statistics/: normal_threshold/ (MIN_AGRI_PROB) and best_threshold/ (advisory). Also emits agricultural_patches_round_<r>_best_th.kml at the chosen threshold. (scripts/config.py, scripts/a3_phase1_active_learning_round.py, scripts/evaluation.py)
+
+- Persistents generator (Highscore / ProbableAgri)
+  - New menu‑driven generator with live progress and logs. Options: 1) Highscore, 2) ProbableAgri, 3) Both. Only the requested lists are reset and rebuilt; others remain untouched. (scripts/generatePersistents.py)
+  - Major UX improvements: visible progress for feature extraction, per‑tile inference, merges, refresh, and cleanup. Bars are transient to avoid console deformation; summary table printed at the end.
+  - Speedups: if per‑tile shards exist (round_*/_tile_preds/*.csv), the tool reuses them and only merges predictions.csv (no re‑inference).
+  - Inference path mirrors the main pipeline (ThreadPoolExecutor with cfg.INFER_TILE_THREADS) so runtime is comparable to round runs.
+
+- Bug fixes
+  - Fixed a progress API misuse during ProbableAgri global merge that could raise AttributeError ('_GeneratorContextManager' has no attribute 'update'). Now uses the correct progress instance. (scripts/a3_phase1_active_learning_round.py)
+
+- README and licensing
+  - Overhauled README: renamed project to thesis title, added badges (Python 3.12, platforms, GEE, CUDA, GPL‑3.0), expanded highlights, configuration guidance, scripts overview, GPU troubleshooting, and reproducibility checklist. (README.md)
+  - Added GPL‑3.0 LICENSE (full text). (LICENSE)
+
+- Diagram
+  - Replaced the visual overview with a hand‑drawn SVG that accurately represents the Active Learning loop: Train → Infer Tiles → Select Candidates → Human Labeling → back to Train, labeled “Active Learning Rounds 1..N”. Arrows and labels are drawn above boxes; curved entries replaced with polylines for crisp, centered arrowheads. Two‑line label in Post‑process is centered as a group. (images/flowchart.svg)
+
+- New utilities
+  - GPU diagnostics: scripts/check_gpu_acceleration.py checks nvidia‑smi, Torch CUDA, and XGBoost GPU with clear pass/fail panels and next steps.
+  - Optional PNG exporter for the flowchart (requires CairoSVG); README currently embeds SVG directly. (scripts/export_flowchart_png.py)
+
+- Configuration and requirements
+  - Capped persistent lists to HIGHSCORE_TOP_K=10000 and PROBABLE_AGRI_TOP_K=10000; kept KML caps aligned. (scripts/config.py)
+  - Cleaned requirements.txt (removed unused scikit‑image/numba/filelock; pinned Python‑3.12‑friendly versions).
+
+- Notes and next steps
+  - If Windows lacks Cairo runtime, prefer SVG in README (works in PyCharm/GitHub). PNG export script remains optional.
+  - generatePersistents supports future flags (e.g., --mode, --rounds) if needed.
+  - For CUDA on Windows, prefer installing Torch CUDA wheels; XGBoost GPU is most robust under WSL2/Linux.
+## 2025‑09‑13 — Visualization upgrades, per‑island summaries, manual‑label snapping, and HN assisted flow
+
+- Evaluation/plots improvements:
+  - Added combined PR+ROC figure (pr_roc_combined.png) with markers for the selected threshold (cfg.MIN_AGRI_PROB) and the advisory best threshold. Thresholds are fetched from config at runtime; no hardcoded 0.35.
+  - Threshold sweep now shows two vertical markers: selected and best threshold.
+  - Confusion matrix is now normalised by true class with a colorbar legend (“Proportion within true class”).
+  - Added class‑split probability histograms (prob_hist_by_class.png) to visualise separation.
+  - Added feature family contributions chart (feature_importance_families.png): red‑edge, spectral, indices, terrain, textures.
+
+- Final sweep summaries:
+  - final_round/<combo>/final_summary.txt now appends a per‑island area table using the filename convention "<island>_tileX.tif"; reports pixel counts and, when CRS is projected, area in km² (tile pixel area derived from transform).
+
+- Threshold handling:
+  - All plots/metrics that depend on the operating threshold read cfg.MIN_AGRI_PROB at runtime (incl. final‑sweep combos which temporarily set it to the combo threshold); best threshold is computed per round/combo and only used for its corresponding plots.
+
+- Manual labelling UX and dedup:
+  - Snap‑first dedup: manual and global labeling now snap to the exact pixel center before duplicate checks; dedup uses the snapped coordinates with existing tolerance.
+  - Labels are written with snapped coordinates; persistent lists remove the snapped pixel key to avoid re‑prompts.
+
+- Assisted “Hard Negative” (HN) flow:
+  - New assisted mode that streams “negative‑like” candidates from Highscore based on prob in [MIN_AGRI_PROB − NEG_LIKE_PROB_DELTA, MIN_AGRI_PROB), with optional NDVI filter (NEG_LIKE_NDVI_RANGE).
+  - Integrated into initial_labeling menus: “Review HardNeg (HN)” and “HardNeg assisted”.
+  - Small pre‑scan prints a tiny on‑screen summary of how many HN candidates meet current filters (capped for very large files).
+
+- Files: scripts/evaluation.py, scripts/a3_phase1_active_learning_round.py, scripts/a6_phase1_postprocessing.py, scripts/a2_phase1_initial_labeling.py.
+
+## 2025‑09‑14 — Persistent lists made truly persistent, robust dedup on Windows, Highscore recovery, and assisted diversity
+
+- Persistence (no silent resets):
+  - Highscore/ProbableAgri are now union‑merged rather than overwritten during refresh. New round outputs are written to temp files and then merged into existing CSVs; only pixels already in labels.csv are dropped. (scripts/a3_phase1_active_learning_round.py)
+  - generatePersistents no longer deletes the persistent CSV/KML up front. (scripts/generatePersistents.py)
+
+- Dedup step fixed and instrumented (Windows‑friendly):
+  - Moved chunk‑sorting helpers to module scope so ProcessPool works under spawn. Added worker exception logs and a sequential fallback. Kept a safety guard that preserves the original file if a rewrite would be empty. Also added a key‑normalisation pass (snap lat/lon → row/col when missing) before dedup. (scripts/ready_to_run_phase1.py)
+  - New console lines show progress: “[DEDUP] sort‑by‑key start/done … produced=N”, “[DEDUP] sort‑by‑score start/done … produced=N”, and a final “Dedup complete … Total=…, kept=…, fixed_keys=…”.
+
+- Highscore recovery tool:
+  - New scripts/recover_highscore.py with progress bars and logs. Recovers labels/phase1/highscore.csv from:
+    - Structured .npy/.npz (named fields or Nx7/Nx8 arrays), or
+    - highscore_top.kml (polygon↔pixel rasterisation), or
+    - Raw float32 fallback: streams a headerless dump (7 floats/row: row,col,lat,lon,prob,ndvi,score), selects top‑K by score, infers tiles from GeoTIFF bounds, and writes CSV.
+  - Auto‑detects default NPY/NPZ at labels/phase1/highscore.(npy|npz) when --npy is not passed.
+
+- Assisted labeling spatial diversity (Highscore and HardNeg):
+  - Added DBSCAN (haversine) clustering + round‑robin interleaving to spread selections geographically. Controlled via:
+    - ASSISTED_SPATIAL_DIVERSITY_ENABLED (default True)
+    - ASSISTED_DIVERSITY_EPS_KM (defaults to CANDIDATE_DBSCAN_EPS_KM)
+  - Highscore: sorts within clusters by score/prob desc. HardNeg: sorts by prob desc. Clear debug prints show clusters and picks. (scripts/a2_phase1_initial_labeling.py, scripts/config.py)
+
+- Highscore summary at startup:
+  - New compact console summary prints total rows, HN counts in [MIN_AGRI_PROB − DELTA, MIN_AGRI_PROB), optional NDVI‑filtered HN, a small probability distribution around the threshold, and present columns. Toggle via HIGHSCORE_SUMMARY_ENABLED (default True). (scripts/ready_to_run_phase1.py, scripts/config.py)
+
+- Evaluation plot fix:
+  - Implemented plot_feature_family_importance in scripts/evaluation.py to resolve import error and generate “feature family contributions” charts.
+
+- Notable run metrics (for context):
+  - With current Highscore (10,000 rows), HN candidates ≈ 3,580 (prob‑only) and ≈ 3,158 with NDVI filter [0.15,0.45] at MIN_AGRI_PROB=0.35, DELTA=0.05.
+
+Files changed today (high level):
+- scripts/a3_phase1_active_learning_round.py, scripts/generatePersistents.py, scripts/ready_to_run_phase1.py,
+  scripts/a2_phase1_initial_labeling.py, scripts/recover_highscore.py, scripts/evaluation.py, scripts/config.py.
+
+Notes:
+- The assisted diversity prints lines like “[ASSISTED] Highscore diversity: clusters=X, picked=Y (eps_km=Z)”.
+- If sklearn is missing, assisted selection falls back gracefully and prints a one‑line notice.
+## 2025-09-17 — Resume guidance, polygonisation crash diagnosis, and paging-file fix plan
+- Verified that the latest round folders were incomplete: no `statistics/config_snapshot.json`, so resume mode loads empty SVM params. Action: let a round finish end-to-end (or manually enter params) to regenerate the snapshot before resuming.
+- Reproduced the polygonising failure: each helper re-imports CUDA-enabled PyTorch and hits WinError 1455 because Windows’ paging file is too small. Two safe remedies agreed: (i) fix the paging file to a large static size (≥32 GB initial and max), or (ii) reinstall the CPU-only PyTorch wheel so workers stop loading CUDA DLLs.
+- Estimated memory footprint (≈20 GB during polygonisation) to justify the paging-file size and documented it for future runs.
+- Confirmed active-learning loop runs cleanly through inference and CSV merge once manual SVM hyperparameters are supplied; next full round should write the missing stats snapshot.
+
+## 2025-09-17 — Round 1 results review and runtime optimisation options
+- Analysed round_1 outputs in `data/phase1/rounds/round_1/**` and summarised precision/recall trade-offs for default (0.35) and tuned (0.39) thresholds without modifying code.
+- Documented stability concerns from `metrics_repeated.json` (precision std ≈0.035) and highlighted feature reliance (Sentinel-3 indices) to explain performance drift versus earlier 200-label baselines.
+- Proposed hyperparameter adjustments (RF tree count/depth, SVM C, calibration folds, class weights) framed as discussion-only steps to trade precision vs recall safely.
+- Audited pipeline scripts to list runtime bottlenecks and produced ordered optimisation ideas (reuse per-tile predictions in postprocessing, trim final sweep grid, warm feature cache, defer permutation importance, adjust repeated validation, ensure GPU usage, right-size inference batches/threads, prune predictions output).
+- Confirmed no files were altered during this diagnostic session; all suggestions remain pending user approval.

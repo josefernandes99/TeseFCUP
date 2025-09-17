@@ -18,6 +18,7 @@ from config import (
     HIGHSCORE_LIST_ENABLED, PROBABLE_AGRI_LIST_ENABLED,
 )
 from al_shared import snap_to_pixel_center, load_skipped_set, record_skipped_pixel
+import config as cfg
 
 def ensure_labels_file():
     os.makedirs(os.path.dirname(LABELS_FILE), exist_ok=True)
@@ -116,6 +117,78 @@ def duplicate_exists(lat, lon, labels):
                 return True
         except:
             continue
+    return False
+
+# ---- Unified proximity duplicate handling for assisted reviews ----
+def _build_label_index():
+    """Build quick lookup for existing labels from master + temp.
+
+    Returns:
+      (rowcol_keys: set[str], by_tile_latlon: dict[str, list[tuple[float,float]]])
+    """
+    import csv as _csv
+    rows = []
+    # master
+    if os.path.exists(LABELS_FILE):
+        with open(LABELS_FILE, newline='') as f:
+            rows += list(_csv.DictReader(f))
+    # temp
+    if os.path.exists(TEMP_LABELS_FILE):
+        with open(TEMP_LABELS_FILE, newline='') as f:
+            rows += list(_csv.DictReader(f))
+    rowcol = set()
+    by_tile = {}
+    for r in rows:
+        t = r.get('tile') or ''
+        try:
+            key = f"{t}:{int(r.get('row'))}:{int(r.get('col'))}"
+            rowcol.add(key)
+        except Exception:
+            pass
+        try:
+            la = float(r.get('lat')); lo = float(r.get('lon'))
+            by_tile.setdefault(t, []).append((la, lo))
+        except Exception:
+            pass
+    return rowcol, by_tile
+
+def _is_duplicate_candidate(tile: str,
+                            lat: float,
+                            lon: float,
+                            row: int | None,
+                            col: int | None,
+                            label_index: tuple[set[str], dict[str, list[tuple[float,float]]]]
+                            ) -> bool:
+    """Return True if candidate is already represented by existing labels.
+
+    Rules (fast → robust):
+    - If (tile,row,col) exists in labels, treat as duplicate.
+    - Else, if any existing label on same tile is within DUPLICATE_TOLERANCE (deg), duplicate.
+    - Else, snap to pixel center and re-check row/col if missing.
+    """
+    rowcol_keys, by_tile = label_index
+    # Exact same pixel (preferred)
+    if row is not None and col is not None:
+        if f"{tile}:{int(row)}:{int(col)}" in rowcol_keys:
+            return True
+    else:
+        # try snapping to get row/col
+        try:
+            sn = snap_to_pixel_center(tile, float(lat), float(lon))
+        except Exception:
+            sn = None
+        if sn:
+            la_s, lo_s, r_s, c_s = sn
+            if f"{tile}:{int(r_s)}:{int(c_s)}" in rowcol_keys:
+                return True
+    # Proximity in degrees (legacy tolerance; consistent across flows)
+    try:
+        pts = by_tile.get(tile, [])
+        for la0, lo0 in pts:
+            if math.hypot(float(la0) - float(lat), float(lo0) - float(lon)) < DUPLICATE_TOLERANCE:
+                return True
+    except Exception:
+        pass
     return False
 
 
@@ -390,6 +463,7 @@ def create_balanced_subset():
 def manual_labeling(num_labels):
     labels = load_labels()
     added = 0
+    labels_all = load_labels()
     w, h = get_patch_dimensions()
     to_remove = []
     for _ in range(num_labels):
@@ -399,12 +473,20 @@ def manual_labeling(num_labels):
         except ValueError:
             print("Invalid. Skip.")
             continue
-        if duplicate_exists(lat, lon, labels):
-            print("Duplicate. Skip.")
-            continue
         tile = get_tile_for_coordinate(lat, lon)
         if not tile:
             print("No tile for coordinate; skipping.")
+            continue
+        # Snap to pixel center first, then deduplicate using snapped coordinates
+        try:
+            snapped = snap_to_pixel_center(tile, lat, lon)
+        except Exception:
+            snapped = None
+        if snapped:
+            la_s, lo_s, r_s, c_s = snapped
+            lat, lon = float(la_s), float(lo_s)
+        if duplicate_exists(lat, lon, labels):
+            print("Duplicate (snapped). Skip.")
             continue
         print("Label? (1=Agri,2=Non,3=Skip)")
         ui = input("=> ").strip()
@@ -430,11 +512,13 @@ def manual_labeling(num_labels):
         labels.append({"lat":lat,"lon":lon,"tile":tile,"label":lab,"notes":note})
         try:
             # collect for batch removal from persistent lists
-            from al_shared import snap_to_pixel_center as _snap
-            snapped = _snap(tile, lat, lon)
-            if snapped:
-                la_s, lo_s, r_s, c_s = snapped
-                to_remove.append((tile, r_s, c_s, la_s, lo_s))
+            if 'snapped' in locals() and snapped:
+                to_remove.append((tile, int(r_s), int(c_s), lat, lon))
+            else:
+                sn2 = snap_to_pixel_center(tile, lat, lon)
+                if sn2:
+                    la2, lo2, rr2, cc2 = sn2
+                    to_remove.append((tile, int(rr2), int(cc2), la2, lo2))
         except Exception:
             pass
         # Show exact candidate pixel KML
@@ -520,17 +604,33 @@ def global_sampling_labeling(num_patches):
         if not lab:
             print("Invalid. Skip.")
             continue
+        # Snap coordinates (again) to ensure we record exact pixel center
+        if r_s is not None and c_s is not None and la_s is not None and lo_s is not None:
+            lat_write, lon_write = float(la_s), float(lo_s)
+        else:
+            sn3 = snap_to_pixel_center(tile, lat, lon)
+            if sn3:
+                la3, lo3, rs3, cs3 = sn3
+                lat_write, lon_write = float(la3), float(lo3)
+            else:
+                lat_write, lon_write = lat, lon
+        # Dedup using snapped lat/lon
+        if duplicate_exists(lat_write, lon_write, labels_all):
+            print("Duplicate (snapped). Skip.")
+            continue
         eid  = f"global_{int(random.random()*1e6)}"
         note = prompt_note()
         with open(LABELS_FILE, "a", newline="") as f:
-            csv.writer(f).writerow([eid, lat, lon, tile, lab, note])
-        print(f"Added global label at ({lat},{lon}).")
+            csv.writer(f).writerow([eid, lat_write, lon_write, tile, lab, note])
+        print(f"Added global label at ({lat_write},{lon_write}).")
         try:
-            from al_shared import snap_to_pixel_center as _snap
-            snapped = _snap(tile, lat, lon)
-            if snapped:
-                la_s, lo_s, r_s, c_s = snapped
-                to_remove.append((tile, r_s, c_s, la_s, lo_s))
+            if r_s is not None and c_s is not None and la_s is not None and lo_s is not None:
+                to_remove.append((tile, int(r_s), int(c_s), la_s, lo_s))
+            else:
+                sn4 = snap_to_pixel_center(tile, lat_write, lon_write)
+                if sn4:
+                    la4, lo4, rr4, cc4 = sn4
+                    to_remove.append((tile, int(rr4), int(cc4), la4, lo4))
         except Exception:
             pass
         added += 1
@@ -569,7 +669,7 @@ def initial_labeling():
                 break
 
         if ok:
-            choice = input("[1] Label more, [2] Train, [3] Review Highscore, [4] Review ProbableAgri => ").strip()
+            choice = input("[1] Label more, [2] Train, [3] Review Highscore, [4] Review ProbableAgri, [5] Review HardNeg (HN) => ").strip()
             if choice == "2":
                 break
             if choice == "3":
@@ -594,6 +694,14 @@ def initial_labeling():
                 added = assisted_labeling_from_list(PROBABLE_AGRI_FILE, n, list_name="ProbableAgri")
                 print(f"Added {added} labels.")
                 continue
+            if choice == "5":
+                try:
+                    n = int(input("How many hard negatives? ").strip())
+                except Exception:
+                    n = 5
+                added = assisted_labeling_hard_negatives(n)
+                print(f"Added {added} labels.")
+                continue
             try:
                 n = int(input("How many to label? "))
             except Exception:
@@ -605,7 +713,7 @@ def initial_labeling():
             except:
                 n = 5
 
-        print("Choose labeling: [1] Manual, [2] Global random, [3] Highscore assisted, [4] ProbableAgri assisted")
+        print("Choose labeling: [1] Manual, [2] Global random, [3] Highscore assisted, [4] ProbableAgri assisted, [5] HardNeg assisted")
         m = input("=> ").strip()
         if m == "1":
             added = manual_labeling(n)
@@ -623,6 +731,8 @@ def initial_labeling():
                 added = 0
             else:
                 added = assisted_labeling_from_list(PROBABLE_AGRI_FILE, n, list_name="ProbableAgri")
+        elif m == "5":
+            added = assisted_labeling_hard_negatives(n)
         else:
             print("Invalid; skipping.")
             added = 0
@@ -808,7 +918,7 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
     if not rows:
         print(f"{list_name} list empty.")
         return 0
-    # Build a unique selection up to max_count
+    # Build unique pool; honour skipped set; keep full pool for diversity selection
     uniq = []
     seen = set()
     skipped = load_skipped_set()
@@ -822,8 +932,117 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
             continue
         seen.add(key)
         uniq.append(r)
-        if len(uniq) >= max_count:
-            break
+
+    # Optional spatial diversity: cluster by haversine and interleave one per cluster
+    def _diversify(cands):
+        import math
+        diversified = []
+        if not getattr(cfg, 'ASSISTED_SPATIAL_DIVERSITY_ENABLED', True) or not cands:
+            return cands[:max_count]
+        try:
+            from sklearn.cluster import DBSCAN
+            import numpy as _np
+            eps_km = float(getattr(cfg, 'ASSISTED_DIVERSITY_EPS_KM', getattr(cfg, 'CANDIDATE_DBSCAN_EPS_KM', 1.5)))
+            earth_km = 6371.0088
+            lat = []; lon = []
+            for r in cands:
+                try:
+                    lat.append(float(r.get('lat'))); lon.append(float(r.get('lon')))
+                except Exception:
+                    lat.append(_np.nan); lon.append(_np.nan)
+            A = _np.vstack([_np.deg2rad(_np.array(lat, dtype=float)), _np.deg2rad(_np.array(lon, dtype=float))]).T
+            # Filter out rows with missing coords
+            valid = _np.isfinite(A).all(axis=1)
+            idxs = _np.where(valid)[0]
+            if idxs.size == 0:
+                return cands[:max_count]
+            coords = A[idxs]
+            cl = DBSCAN(eps=eps_km/earth_km, min_samples=1, metric='haversine').fit(coords)
+            labels = cl.labels_ if hasattr(cl, 'labels_') else _np.zeros((idxs.size,), dtype=int)
+            # Build per-cluster queues; sort each cluster by best available score/prob desc
+            from collections import defaultdict
+            buckets = defaultdict(list)
+            def _score(r):
+                try:
+                    return float(r.get('score'))
+                except Exception:
+                    try: return float(r.get('prob'))
+                    except Exception: return float('-inf')
+            for ii, cid in zip(idxs.tolist(), labels.tolist()):
+                buckets[cid].append(cands[ii])
+            for cid in buckets:
+                buckets[cid].sort(key=_score, reverse=True)
+            # Interleave one-per-cluster
+            keys = list(buckets.keys())
+            ptr = {cid:0 for cid in keys}
+            while len(diversified) < max_count and any(ptr[cid] < len(buckets[cid]) for cid in keys):
+                for cid in keys:
+                    p = ptr[cid]
+                    if p < len(buckets[cid]):
+                        diversified.append(buckets[cid][p])
+                        ptr[cid] = p + 1
+                        if len(diversified) >= max_count:
+                            break
+            # If some rows lacked coords or we still need more, backfill in original order
+            if len(diversified) < max_count:
+                seenK = set(id(r) for r in diversified)
+                for r in cands:
+                    if id(r) in seenK: continue
+                    diversified.append(r)
+                    if len(diversified) >= max_count:
+                        break
+            # Debug print
+            try:
+                print(f"[ASSISTED] {list_name} diversity: clusters={len(keys)}, picked={len(diversified)} (eps_km={eps_km})")
+            except Exception:
+                pass
+            return diversified
+        except Exception as _e:
+            try: print(f"[ASSISTED] Diversity disabled due to error: {_e}")
+            except Exception: pass
+            return cands[:max_count]
+
+    uniq = _diversify(uniq)
+
+    # Pre-filter duplicates by proximity and exact pixel (same logic as other assisted flows)
+    try:
+        label_index = _build_label_index()
+        labels_all_pref = load_labels()
+        filtered = []
+        dropped = 0
+        for r in uniq:
+            t = r.get('tile')
+            try:
+                la = float(r.get('lat')); lo = float(r.get('lon'))
+            except Exception:
+                continue
+            try:
+                rr = int(r.get('row')); cc = int(r.get('col'))
+            except Exception:
+                rr = None; cc = None
+            # unified pixel key or proximity
+            dup = _is_duplicate_candidate(t, la, lo, rr, cc, label_index)
+            # legacy proximity guard in case of rounding/snap differences
+            if not dup:
+                try:
+                    if duplicate_exists(la, lo, labels_all_pref):
+                        dup = True
+                except Exception:
+                    pass
+            if dup:
+                dropped += 1
+                continue
+            filtered.append(r)
+        if dropped:
+            print(f"[ASSISTED] {list_name}: pre-filtered {dropped} near-duplicate candidates.")
+        uniq = filtered
+    except Exception as _e_pf:
+        try:
+            print(f"[ASSISTED] HardNeg: pre-filter step skipped due to error: {_e_pf}")
+        except Exception:
+            pass
+
+    # (pre-filter applied above)
 
     added = 0
     w, h = get_patch_dimensions()
@@ -835,13 +1054,30 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
             row = int(r.get('row')); col = int(r.get('col'))
         except Exception:
             continue
+        # Pre-prompt duplicate guard: never show a duplicate
+        try:
+            if _is_duplicate_candidate(tile, la, lo, row, col, label_index):
+                # secondary guard using legacy proximity against labels snapshot
+                try:
+                    if duplicate_exists(la, lo, load_labels()):
+                        pass
+                except Exception:
+                    pass
+                continue
+        except Exception:
+            pass
         # Show exact candidate pixel KML for list-based review
         try:
             generate_kml_for_pixel(tile, row, col)
         except Exception:
             continue
         print(f"Open KML {CANDIDATE_KML} to view candidate from {list_name}.")
-        ui = input("Label? (1=Agri,2=Non,3=Skip): ").strip()
+        print("Label? (1=Agri,2=Non,3=Skip): ")
+        while True:
+            ui = input("=> ").strip()
+            if ui in ("1","2","3"):
+                break
+            print("Please type 1, 2, or 3.")
         if ui == "3":
             # record skip directly using provided row/col and lat/lon from the list
             try:
@@ -860,6 +1096,270 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
         to_remove.append((tile, row, col, la, lo))
         print(f"Labeled from {list_name}: {tile} r={row},c={col}")
         added += 1
+        # Update in-memory indices so subsequent candidates respect proximity
+        try:
+            if 'label_index' in locals() and isinstance(label_index, tuple) and len(label_index) == 2:
+                label_index[0].add(f"{tile}:{int(row)}:{int(col)}")
+                label_index[1].setdefault(tile, []).append((float(la), float(lo)))
+        except Exception:
+            pass
+    if added:
+        if to_remove:
+            _batch_remove_pixels_from_lists(to_remove)
+        _snap_labels_only()
+        export_labels_kml()
+    return added
+
+
+def assisted_labeling_hard_negatives(max_count: int) -> int:
+    """Stream 'hard negative' candidates from Highscore list and prompt labeling.
+
+    Selection criteria (default):
+      - prob in [MIN_AGRI_PROB - NEG_LIKE_PROB_DELTA, MIN_AGRI_PROB)
+      - optional NDVI filter via NEG_LIKE_NDVI_RANGE when set (absolute mode)
+
+    Notes:
+      - Uses the same interactive loop and KML preview as other assisted flows.
+      - De-duplicates against skipped set and enforces uniqueness by (tile,row,col).
+    """
+    if not HIGHSCORE_LIST_ENABLED:
+        print("Highscore list is disabled in config; assisted HN labeling unavailable.")
+        return 0
+    if not os.path.exists(HIGHSCORE_FILE):
+        print(f"No Highscore file at {HIGHSCORE_FILE}")
+        return 0
+    try:
+        import config as cfg
+        lo = max(0.0, float(cfg.MIN_AGRI_PROB) - float(getattr(cfg, 'NEG_LIKE_PROB_DELTA', 0.05)))
+        hi = float(cfg.MIN_AGRI_PROB)
+    except Exception:
+        lo, hi = max(0.0, MIN_AGRI_PROB - 0.05), MIN_AGRI_PROB
+    ndvi_abs = getattr(cfg, 'NEG_LIKE_NDVI_RANGE', (None, None))
+    use_ndvi_abs = isinstance(ndvi_abs, (list, tuple)) and ndvi_abs[0] is not None and ndvi_abs[1] is not None
+
+    # Quick on-screen summary: estimate how many HN candidates meet filters
+    try:
+        total_candidates = 0
+        cap = 1_000_000  # safety cap for huge files
+        import csv as _csv
+        with open(HIGHSCORE_FILE, newline='') as f:
+            rd = _csv.DictReader(f)
+            for r in rd:
+                try:
+                    p = float(r.get('prob'))
+                except Exception:
+                    continue
+                if not (lo <= p < hi):
+                    continue
+                if use_ndvi_abs:
+                    try:
+                        ndv = float(r.get('ndvi'))
+                    except Exception:
+                        ndv = None
+                    if ndv is None or not (ndvi_abs[0] <= ndv <= ndvi_abs[1]):
+                        continue
+                total_candidates += 1
+                if total_candidates >= cap:
+                    break
+        if total_candidates >= cap:
+            print(f"HardNeg candidates (prob in [{lo:.2f},{hi:.2f}) + NDVI filter): >= {cap:,}")
+        else:
+            print(f"HardNeg candidates (prob in [{lo:.2f},{hi:.2f}) + NDVI filter): {total_candidates:,}")
+    except Exception as _e:
+        print(f"HN pre-scan skipped: {_e}")
+
+    # Build full unique pool (prob/NDVI filters already applied)
+    uniq = []
+    seen = set()
+    skipped = load_skipped_set()
+    # Stream read to avoid loading the full CSV
+    import csv as _csv
+    with open(HIGHSCORE_FILE, newline='') as f:
+        rd = _csv.DictReader(f)
+        for r in rd:
+            t = r.get('tile'); rr = r.get('row'); cc = r.get('col')
+            try:
+                p = float(r.get('prob'))
+            except Exception:
+                continue
+            if not (lo <= p < hi):
+                continue
+            if use_ndvi_abs:
+                try:
+                    ndv = float(r.get('ndvi'))
+                except Exception:
+                    ndv = None
+                if ndv is None or not (ndvi_abs[0] <= ndv <= ndvi_abs[1]):
+                    continue
+            try:
+                key = f"{t}:{int(rr)}:{int(cc)}"
+            except Exception:
+                continue
+            if key in seen or (skipped and key in skipped):
+                continue
+            seen.add(key)
+            uniq.append(r)
+
+    # Apply spatial diversity (round-robin across haversine clusters)
+    def _diversify(cands):
+        if not getattr(cfg, 'ASSISTED_SPATIAL_DIVERSITY_ENABLED', True) or not cands:
+            return cands[:max_count]
+        try:
+            from sklearn.cluster import DBSCAN
+            import numpy as _np
+            eps_km = float(getattr(cfg, 'ASSISTED_DIVERSITY_EPS_KM', getattr(cfg, 'CANDIDATE_DBSCAN_EPS_KM', 1.5)))
+            earth_km = 6371.0088
+            # Prepare arrays
+            lat = _np.array([float(r.get('lat')) for r in cands], dtype=float)
+            lon = _np.array([float(r.get('lon')) for r in cands], dtype=float)
+            coords = _np.vstack([_np.deg2rad(lat), _np.deg2rad(lon)]).T
+            cl = DBSCAN(eps=eps_km/earth_km, min_samples=1, metric='haversine').fit(coords)
+            labels = cl.labels_ if hasattr(cl, 'labels_') else _np.zeros((coords.shape[0],), dtype=int)
+            # Order by prob desc (closer to threshold from below already enforced by selection)
+            from collections import defaultdict
+            buckets = defaultdict(list)
+            for idx, cid in enumerate(labels.tolist()):
+                buckets[cid].append(cands[idx])
+            for cid in buckets:
+                buckets[cid].sort(key=lambda r: float(r.get('prob', 0.0)), reverse=True)
+            picks = []
+            keys = list(buckets.keys())
+            ptr = {cid:0 for cid in keys}
+            while len(picks) < max_count and any(ptr[cid] < len(buckets[cid]) for cid in keys):
+                for cid in keys:
+                    p = ptr[cid]
+                    if p < len(buckets[cid]):
+                        picks.append(buckets[cid][p])
+                        ptr[cid] = p + 1
+                        if len(picks) >= max_count:
+                            break
+            try:
+                print(f"[ASSISTED] HardNeg diversity: clusters={len(keys)}, picked={len(picks)} (eps_km={eps_km})")
+            except Exception:
+                pass
+            return picks
+        except Exception as _e:
+            try: print(f"[ASSISTED] HardNeg diversity disabled due to error: {_e}")
+            except Exception: pass
+            return cands[:max_count]
+
+    uniq = _diversify(uniq)
+
+    # Pre-filter duplicates against existing labels before prompting (unified logic)
+    try:
+        label_index = _build_label_index()
+        labels_all_pref = load_labels()
+        filtered = []
+        dropped = 0
+        for r in uniq:
+            t = r.get('tile')
+            try:
+                la = float(r.get('lat')); lo = float(r.get('lon'))
+            except Exception:
+                continue
+            try:
+                rr = int(r.get('row')); cc = int(r.get('col'))
+            except Exception:
+                rr = None; cc = None
+            dup = _is_duplicate_candidate(t, la, lo, rr, cc, label_index)
+            if not dup:
+                try:
+                    if duplicate_exists(la, lo, labels_all_pref):
+                        dup = True
+                except Exception:
+                    pass
+            if dup:
+                dropped += 1
+                continue
+            filtered.append(r)
+        if dropped:
+            print(f"[ASSISTED] HardNeg: pre-filtered {dropped} near-duplicate candidates.")
+        uniq = filtered
+    except Exception as _e_pf:
+        try:
+            print(f"[ASSISTED] HardNeg: pre-filter step skipped due to error: {_e_pf}")
+        except Exception:
+            pass
+
+    if not uniq:
+        print("No hard negative candidates found with current filters.")
+        return 0
+
+    added = 0
+    w, h = get_patch_dimensions()
+    to_remove = []
+    # For duplicate checks against existing labels
+    labels_all = load_labels()
+
+    for r in uniq:
+        tile = r.get('tile')
+        try:
+            la = float(r.get('lat')); lo = float(r.get('lon'))
+            row = int(r.get('row')); col = int(r.get('col'))
+        except Exception:
+            continue
+        # Pre-prompt duplicate guard: never show a duplicate
+        try:
+            if _is_duplicate_candidate(tile, la, lo, row, col, label_index):
+                # also guard using legacy proximity against labels snapshot
+                try:
+                    if duplicate_exists(la, lo, labels_all):
+                        pass
+                except Exception:
+                    pass
+                # Skip silently to avoid unnecessary console spam
+                continue
+        except Exception:
+            pass
+        # Show exact candidate pixel KML for review
+        try:
+            generate_kml_for_pixel(tile, row, col)
+        except Exception:
+            continue
+        print(f"Open KML {CANDIDATE_KML} to view Hard Negative candidate.")
+        print("Label? (1=Agri,2=Non,3=Skip): ")
+        while True:
+            ui = input("=> ").strip()
+            if ui in ("1","2","3"):
+                break
+            print("Please type 1, 2, or 3.")
+        if ui == "3":
+            try:
+                record_skipped_pixel(tile, row, col, la, lo, source="HardNeg")
+            except Exception:
+                pass
+            continue
+        lab = "Agricultural" if ui == "1" else "Non-Agricultural" if ui == "2" else None
+        if not lab:
+            print("Invalid choice.")
+            continue
+        # Safety guard in case a duplicate slipped past pre-prompt
+        try:
+            if _is_duplicate_candidate(tile, la, lo, row, col, label_index):
+                print("Duplicate (pre-prompt guard). Skip.")
+                continue
+        except Exception:
+            try:
+                if duplicate_exists(la, lo, labels_all):
+                    print("Duplicate (pre-prompt guard). Skip.")
+                    continue
+            except Exception:
+                pass
+        note = prompt_note()
+        eid = f"HN_{int(random.random()*1e6)}"
+        with open(LABELS_FILE, 'a', newline='') as f:
+            csv.writer(f).writerow([eid, la, lo, tile, lab, note])
+        to_remove.append((tile, row, col, la, lo))
+        print(f"Labeled Hard Negative: {tile} r={row},c={col}")
+        added += 1
+        # Update in-memory indices so subsequent candidates respect proximity
+        try:
+            if 'label_index' in locals() and isinstance(label_index, tuple) and len(label_index) == 2:
+                label_index[0].add(f"{tile}:{int(row)}:{int(col)}")
+                label_index[1].setdefault(tile, []).append((float(la), float(lo)))
+        except Exception:
+            pass
+
     if added:
         if to_remove:
             _batch_remove_pixels_from_lists(to_remove)

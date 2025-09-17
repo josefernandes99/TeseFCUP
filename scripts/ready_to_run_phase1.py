@@ -18,12 +18,104 @@ from a2_phase1_initial_labeling import (
 from a4_phase1_active_learning_loop import active_learning_loop, collect_user_hyperparams
 from a6_phase1_postprocessing import postprocessing
 from grid_search import run_grid_search
+from final_grid_search import run_final_grid_search
 from config import RAW_DATA_DIR, TIMESTAMPS, BANDS, INDICES
 import config as cfg
 from al_shared import snap_to_pixel_center
 from memory_watcher import start_memory_watcher, free_unused_memory
 from joblib import load as _joblib_load
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+# --- Module-scope helpers for dedup ProcessPool (Windows-friendly) ---
+def _dedup_sort_chunk_by_key(input_csv, output_csv):
+    import csv as _csv
+    with open(input_csv, 'r', newline='') as f:
+        rr = _csv.reader(f)
+        header = next(rr, None)
+        if not header:
+            with open(output_csv, 'w', newline='') as out:
+                pass
+            return True
+        def _idx(name):
+            try: return header.index(name)
+            except Exception: return None
+        i_tile = _idx('tile'); i_row = _idx('row'); i_col = _idx('col')
+        i_lat = _idx('lat'); i_lon = _idx('lon')
+        items = []
+        for row in rr:
+            try:
+                t = row[i_tile] if i_tile is not None else ''
+            except Exception:
+                continue
+            key = None
+            if i_row is not None and i_col is not None:
+                try:
+                    rr_i = int(row[i_row]); cc_i = int(row[i_col])
+                    key = (t, f"{rr_i:09d}", f"{cc_i:09d}")
+                except Exception:
+                    key = None
+            if key is None and i_lat is not None and i_lon is not None:
+                try:
+                    la = float(row[i_lat]); lo = float(row[i_lon])
+                    key = (t, f"{la:.7f}", f"{lo:.7f}")
+                except Exception:
+                    key = None
+            if key is None:
+                continue
+            items.append((key, row))
+    items.sort(key=lambda t: t[0])
+    with open(output_csv, 'w', newline='') as out:
+        ww = _csv.writer(out)
+        ww.writerow(header)
+        for _, row in items:
+            ww.writerow(row)
+    return True
+
+
+def _dedup_sort_chunk_by_score(input_csv, output_csv):
+    import csv as _csv
+    with open(input_csv, 'r', newline='') as f:
+        rr = _csv.reader(f)
+        header = next(rr, None)
+        if not header:
+            with open(output_csv, 'w', newline='') as out:
+                pass
+            return True
+        def _idx(name):
+            try: return header.index(name)
+            except Exception: return None
+        i_score = _idx('score'); i_prob = _idx('prob')
+        i_tile = _idx('tile'); i_row = _idx('row'); i_col = _idx('col')
+        i_lat = _idx('lat'); i_lon = _idx('lon')
+        def _score_of_row(row):
+            try:
+                if i_score is not None:
+                    return float(row[i_score])
+            except Exception:
+                pass
+            try:
+                if i_prob is not None:
+                    return float(row[i_prob])
+            except Exception:
+                return float('-inf')
+        def _tie_of_row(row):
+            t = row[i_tile] if i_tile is not None else ''
+            if i_row is not None and i_col is not None:
+                try:
+                    return (t, int(row[i_row]), int(row[i_col]))
+                except Exception:
+                    return (t, row[i_lat] if i_lat is not None else '', row[i_lon] if i_lon is not None else '')
+            return (t, row[i_lat] if i_lat is not None else '', row[i_lon] if i_lon is not None else '')
+        items = []
+        for row in rr:
+            items.append((-_score_of_row(row), _tie_of_row(row), row))
+    items.sort(key=lambda t: (t[0], t[1]))
+    with open(output_csv, 'w', newline='') as out:
+        ww = _csv.writer(out)
+        ww.writerow(header)
+        for _, _, row in items:
+            ww.writerow(row)
+    return True
 
 STEP_ORDER = [
     "setup_check",
@@ -334,6 +426,12 @@ def main():
                         print(f"Final labels export failed: {e}")
             elif step == "postprocessing":
                 postprocessing()
+                # Final compact grid search as the last step of the pipeline
+                try:
+                    print("\n=== Running final grid search round ===")
+                    run_final_grid_search(mchoice)
+                except Exception as _e:
+                    print(f"Final grid search skipped: {_e}")
         print("\n=== Pipeline Completed Successfully! ===")
     except Exception as e:
         print(f"Pipeline failed: {e}")
@@ -452,94 +550,7 @@ def _validate_and_dedup_all():
     # highscore & probable agri: just snap/dedup; do not delete global files
     # For persistent lists, avoid snapping (already pixel-centered from pipeline).
     # Perform a fast streaming de-dup by (tile,row,col) or fallback to (tile,lat,lon).
-    # Helpers for parallel chunk sorting
-    def _sort_chunk_by_key(input_csv, output_csv):
-        import csv as _csv
-        with open(input_csv, 'r', newline='') as f:
-            rr = _csv.reader(f)
-            header = next(rr, None)
-            if not header:
-                with open(output_csv, 'w', newline='') as out:
-                    pass
-                return
-            # Column indices
-            def _idx(name):
-                try: return header.index(name)
-                except Exception: return None
-            i_tile = _idx('tile'); i_row = _idx('row'); i_col = _idx('col')
-            i_lat = _idx('lat'); i_lon = _idx('lon')
-            items = []
-            for row in rr:
-                try:
-                    t = row[i_tile] if i_tile is not None else ''
-                except Exception:
-                    continue
-                key = None
-                if i_row is not None and i_col is not None:
-                    try:
-                        rr_i = int(row[i_row]); cc_i = int(row[i_col])
-                        key = (t, f"{rr_i:09d}", f"{cc_i:09d}")
-                    except Exception:
-                        key = None
-                if key is None and i_lat is not None and i_lon is not None:
-                    try:
-                        la = float(row[i_lat]); lo = float(row[i_lon])
-                        key = (t, f"{la:.7f}", f"{lo:.7f}")
-                    except Exception:
-                        key = None
-                if key is None:
-                    continue
-                items.append((key, row))
-        items.sort(key=lambda t: t[0])
-        with open(output_csv, 'w', newline='') as out:
-            ww = _csv.writer(out)
-            ww.writerow(header)
-            for _, row in items:
-                ww.writerow(row)
-
-    def _sort_chunk_by_score(input_csv, output_csv):
-        import csv as _csv
-        with open(input_csv, 'r', newline='') as f:
-            rr = _csv.reader(f)
-            header = next(rr, None)
-            if not header:
-                with open(output_csv, 'w', newline='') as out:
-                    pass
-                return
-            def _idx(name):
-                try: return header.index(name)
-                except Exception: return None
-            i_score = _idx('score'); i_prob = _idx('prob')
-            i_tile = _idx('tile'); i_row = _idx('row'); i_col = _idx('col')
-            i_lat = _idx('lat'); i_lon = _idx('lon')
-            def _score_of_row(row):
-                try:
-                    if i_score is not None:
-                        return float(row[i_score])
-                except Exception:
-                    pass
-                try:
-                    if i_prob is not None:
-                        return float(row[i_prob])
-                except Exception:
-                    return float('-inf')
-            def _tie_of_row(row):
-                t = row[i_tile] if i_tile is not None else ''
-                if i_row is not None and i_col is not None:
-                    try:
-                        return (t, int(row[i_row]), int(row[i_col]))
-                    except Exception:
-                        return (t, row[i_lat] if i_lat is not None else '', row[i_lon] if i_lon is not None else '')
-                return (t, row[i_lat] if i_lat is not None else '', row[i_lon] if i_lon is not None else '')
-            items = []
-            for row in rr:
-                items.append((-_score_of_row(row), _tie_of_row(row), row))
-        items.sort(key=lambda t: (t[0], t[1]))
-        with open(output_csv, 'w', newline='') as out:
-            ww = _csv.writer(out)
-            ww.writerow(header)
-            for _, _, row in items:
-                ww.writerow(row)
+    # Sorting helpers now moved to module scope for Windows ProcessPool compatibility
 
     def _fast_dedup(path):
         """External sort + unique by key (tile,row,col) or (tile,lat,lon) with bounded RAM.
@@ -557,15 +568,79 @@ def _validate_and_dedup_all():
         root_dir = os.path.dirname(path)
         tmp_dir = os.path.join(root_dir, "_dedup_tmp")
         os.makedirs(tmp_dir, exist_ok=True)
+        # Normalize keys so every row has stable (tile,row,col) or snapped (lat,lon)
+        def _normalize_keys(src_csv: str, dst_csv: str) -> tuple[int, int, int]:
+            import csv as _csv
+            from al_shared import snap_to_pixel_center as _snap
+            from config import RAW_DATA_DIR as _RAW
+            total, kept, fixed = 0, 0, 0
+            # Build output header
+            fields_union = []
+            have = set()
+            with open(src_csv, 'r', newline='') as f0:
+                rd0 = _csv.DictReader(f0)
+                if rd0.fieldnames:
+                    fields_union = list(rd0.fieldnames)
+                    have.update(fields_union)
+            for k in ("tile","row","col","lat","lon","prob","ndvi","score"):
+                if k not in have:
+                    fields_union.append(k); have.add(k)
+            with open(src_csv, 'r', newline='') as f, open(dst_csv, 'w', newline='') as out:
+                rd = _csv.DictReader(f)
+                w = _csv.DictWriter(out, fieldnames=fields_union)
+                w.writeheader()
+                for r in rd:
+                    total += 1
+                    tile = r.get('tile') or ''
+                    # Try row/col
+                    rr = cc = None
+                    try:
+                        rr = int(r.get('row')) if r.get('row') not in (None, '') else None
+                        cc = int(r.get('col')) if r.get('col') not in (None, '') else None
+                    except Exception:
+                        rr = cc = None
+                    # Lat/lon
+                    la = lo = None
+                    try:
+                        la = float(r.get('lat')) if r.get('lat') not in (None, '') else None
+                        lo = float(r.get('lon')) if r.get('lon') not in (None, '') else None
+                    except Exception:
+                        la = lo = None
+                    # Fill row/col from lat/lon if needed
+                    if (rr is None or cc is None) and tile and la is not None and lo is not None and os.path.exists(os.path.join(_RAW, tile)):
+                        try:
+                            sla, slo, rri, cci = _snap(tile, la, lo)
+                            rr, cc = int(rri), int(cci)
+                            la, lo = float(sla), float(slo)
+                            fixed += 1
+                        except Exception:
+                            pass
+                    # Write normalized row (non-destructive)
+                    r_out = dict(r)
+                    if rr is not None:
+                        r_out['row'] = rr
+                    if cc is not None:
+                        r_out['col'] = cc
+                    if la is not None:
+                        r_out['lat'] = f"{la:.7f}"
+                    if lo is not None:
+                        r_out['lon'] = f"{lo:.7f}"
+                    w.writerow({k: r_out.get(k, '') for k in fields_union})
+                    kept += 1
+            return total, kept, fixed
+
+        norm_src = os.path.join(tmp_dir, f"{base}.norm.csv")
+        total_rows, kept_rows, fixed_rows = _normalize_keys(path, norm_src)
         try:
-            size = os.path.getsize(path)
+            size = os.path.getsize(norm_src)
         except Exception:
             size = None
 
         # Phase 1: chunked write + parallel sort by key
         CHUNK_ROWS = int(getattr(cfg, 'DEDUP_CHUNK_ROWS', 200_000))
         raw_chunks = []
-        with open(path, 'r', newline='') as f, _npb() as _prog:
+        orig_rows = 0
+        with open(norm_src, 'r', newline='') as f, _npb() as _prog:
             task = _prog.add_task(f"Dedup (phase 1/3 write): {base}", total=size or None)
             rd = _csv.DictReader(f)
             fieldnames = rd.fieldnames or []
@@ -574,6 +649,7 @@ def _validate_and_dedup_all():
             last_tell = 0
             for r in rd:
                 rows_buf.append(r)
+                orig_rows += 1
                 if len(rows_buf) >= CHUNK_ROWS:
                     cpath_raw = os.path.join(tmp_dir, f"{base}.chunk{idx}.raw.csv")
                     with open(cpath_raw, 'w', newline='') as cf:
@@ -607,18 +683,33 @@ def _validate_and_dedup_all():
             with _npb() as _prog2:
                 t2 = _prog2.add_task(f"Dedup (phase 2/3 sort-by-key): {base}", total=len(raw_chunks))
                 max_workers = max(2, min(int(getattr(cfg, 'DEDUP_SORT_WORKERS', 4)), os.cpu_count() or 4))
-                with ProcessPoolExecutor(max_workers=max_workers) as ex:
-                    futs = {}
+                print(f"[DEDUP] sort-by-key start: chunks={len(raw_chunks)}, workers={max_workers}")
+                try:
+                    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                        futs = {}
+                        for rp in raw_chunks:
+                            outp = rp.replace('.raw.csv', '.keysorted.csv')
+                            fut = ex.submit(_dedup_sort_chunk_by_key, rp, outp)
+                            futs[fut] = (rp, outp)
+                        for fut in as_completed(futs):
+                            rp, outp = futs[fut]
+                            err = fut.exception()
+                            if err is not None:
+                                print(f"[DEDUP] sort-by-key worker failed for {rp}: {err}")
+                            elif os.path.exists(outp):
+                                sorted_chunks.append(outp)
+                            else:
+                                print(f"[DEDUP] sort-by-key missing output for {rp}: {outp}")
+                            _prog2.update(t2, advance=1)
+                except Exception as e:
+                    print(f"[DEDUP] sort-by-key pool failed: {e}; falling back to sequential.")
                     for rp in raw_chunks:
                         outp = rp.replace('.raw.csv', '.keysorted.csv')
-                        futs[ex.submit(_sort_chunk_by_key, rp, outp)] = (rp, outp)
-                    for fut in as_completed(futs):
-                        try:
-                            rp, outp = futs[fut]
+                        ok = _dedup_sort_chunk_by_key(rp, outp)
+                        if ok and os.path.exists(outp):
                             sorted_chunks.append(outp)
-                        except Exception:
-                            pass
                         _prog2.update(t2, advance=1)
+                print(f"[DEDUP] sort-by-key done: produced={len(sorted_chunks)}")
                 # remove raw chunks
                 for rp in raw_chunks:
                     try: os.remove(rp)
@@ -746,18 +837,33 @@ def _validate_and_dedup_all():
             with _npb() as _prog4:
                 t4 = _prog4.add_task(f"Dedup (sort-by-score chunks): {base}", total=len(score_raws))
                 max_workers = max(2, min(int(getattr(cfg, 'DEDUP_SORT_WORKERS', 4)), os.cpu_count() or 4))
-                with ProcessPoolExecutor(max_workers=max_workers) as ex:
-                    futs = {}
+                print(f"[DEDUP] sort-by-score start: chunks={len(score_raws)}, workers={max_workers}")
+                try:
+                    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+                        futs = {}
+                        for rp in score_raws:
+                            outp = rp.replace('.raw.csv', '.scoresorted.csv')
+                            fut = ex.submit(_dedup_sort_chunk_by_score, rp, outp)
+                            futs[fut] = (rp, outp)
+                        for fut in as_completed(futs):
+                            rp, outp = futs[fut]
+                            err = fut.exception()
+                            if err is not None:
+                                print(f"[DEDUP] sort-by-score worker failed for {rp}: {err}")
+                            elif os.path.exists(outp):
+                                score_sorted.append(outp)
+                            else:
+                                print(f"[DEDUP] sort-by-score missing output for {rp}: {outp}")
+                            _prog4.update(t4, advance=1)
+                except Exception as e:
+                    print(f"[DEDUP] sort-by-score pool failed: {e}; falling back to sequential.")
                     for rp in score_raws:
                         outp = rp.replace('.raw.csv', '.scoresorted.csv')
-                        futs[ex.submit(_sort_chunk_by_score, rp, outp)] = (rp, outp)
-                    for fut in as_completed(futs):
-                        try:
-                            rp, outp = futs[fut]
+                        ok = _dedup_sort_chunk_by_score(rp, outp)
+                        if ok and os.path.exists(outp):
                             score_sorted.append(outp)
-                        except Exception:
-                            pass
                         _prog4.update(t4, advance=1)
+                print(f"[DEDUP] sort-by-score done: produced={len(score_sorted)}")
                 for rp in score_raws:
                     try: os.remove(rp)
                     except Exception: pass
@@ -770,6 +876,7 @@ def _validate_and_dedup_all():
             except Exception:
                 try: return float(r.get('prob'))
                 except Exception: return float('-inf')
+        out_rows = 0
         with open(final_tmp, 'w', newline='') as out:
             w = _csv.DictWriter(out, fieldnames=fieldnames)
             if fieldnames:
@@ -796,6 +903,7 @@ def _validate_and_dedup_all():
             while heap:
                 neg_sc, tieb, idx, row = _hq.heappop(heap)
                 w.writerow(row)
+                out_rows += 1
                 cf, rd2 = readers[idx]
                 try:
                     row2 = next(rd2)
@@ -809,6 +917,19 @@ def _validate_and_dedup_all():
                 try: cf.close()
                 except Exception: pass
 
+        # Safety: if dedup would result in an empty file but original had rows,
+        # do NOT replace. Keep the original as-is and warn.
+        if orig_rows > 0 and out_rows == 0:
+            try:
+                os.remove(final_tmp)
+            except Exception:
+                pass
+            print(f"[WARN] Dedup skipped for {base}: produced 0 rows from {orig_rows}. Keeping original file.")
+            try: os.remove(dedup_tmp)
+            except Exception: pass
+            try: os.rmdir(tmp_dir)
+            except Exception: pass
+            return False
         # Replace original atomically and cleanup
         try:
             os.replace(final_tmp, path)
@@ -820,102 +941,9 @@ def _validate_and_dedup_all():
         except Exception: pass
         try: os.rmdir(tmp_dir)
         except Exception: pass
-        print(f"Dedup complete: {base} (parallel two-sort)")
+        print(f"Dedup complete: {base} (parallel two-sort). Total={total_rows}, kept={kept_rows}, fixed_keys={fixed_rows}")
         return True
-
-        # If only one chunk, just replace original with sorted unique from that chunk
-        if not chunk_paths:
-            # No valid rows; truncate file to header only
-            with open(path, 'r', newline='') as f:
-                rd = _csv.DictReader(f)
-                fieldnames = rd.fieldnames or []
-            with open(path, 'w', newline='') as out:
-                w = _csv.DictWriter(out, fieldnames=fieldnames)
-                if fieldnames:
-                    w.writeheader()
-            try:
-                os.rmdir(tmp_dir)
-            except Exception:
-                pass
-            return True
-
-        # Phase 2: k-way merge with unique
-        tmp_out = path + '.tmp'
-        import heapq
-        with open(tmp_out, 'w', newline='') as out, _npb() as _prog:
-            task = _prog.add_task(f"Dedup (phase 2/2 merge): {base}", total=len(chunk_paths) or None)
-            # Open readers
-            readers = []
-            for cpath in chunk_paths:
-                try:
-                    cf = open(cpath, 'r', newline='')
-                except Exception:
-                    continue
-                rd = _csv.DictReader(cf)
-                readers.append((cf, rd))
-            # Prepare heap with first row from each reader
-            heap = []
-            for idx, (cf, rd) in enumerate(readers):
-                try:
-                    row = next(rd)
-                except StopIteration:
-                    row = None
-                if not row:
-                    continue
-                k = _key_of(row)
-                if not k:
-                    continue
-                heapq.heappush(heap, (k, idx, row))
-            # Write header
-            fieldnames = readers[0][1].fieldnames if readers else []
-            w = _csv.DictWriter(out, fieldnames=fieldnames)
-            if fieldnames:
-                w.writeheader()
-            last_key = None
-            progressed = 0
-            while heap:
-                k, idx, row = heapq.heappop(heap)
-                if k != last_key:
-                    w.writerow(row)
-                    last_key = k
-                # pull next from the same reader
-                cf, rd = readers[idx]
-                try:
-                    row2 = next(rd)
-                except StopIteration:
-                    row2 = None
-                if row2:
-                    k2 = _key_of(row2)
-                    if k2:
-                        heapq.heappush(heap, (k2, idx, row2))
-                # progress by number of readers advanced
-                progressed += 1
-                if progressed % 50000 == 0:
-                    _prog.update(task, advance=0)  # keep spinner alive
-            # Close readers
-            for cf, _ in readers:
-                try: cf.close()
-                except Exception: pass
-
-        # Replace original atomically
-        try:
-            os.replace(tmp_out, path)
-        except Exception:
-            try:
-                os.remove(tmp_out)
-            except Exception:
-                pass
-            return False
-        # Cleanup chunks
-        for cpath in chunk_paths:
-            try: os.remove(cpath)
-            except Exception: pass
-        try:
-            os.rmdir(tmp_dir)
-        except Exception:
-            pass
-        print(f"Dedup complete: {base} (external sort-unique)")
-        return True
+        
 
     # Print warning summary for tiles that failed to snap/open
     if warn_counts:
@@ -932,6 +960,50 @@ def _validate_and_dedup_all():
     if getattr(cfg, 'HIGHSCORE_LIST_ENABLED', True):
         path = HIGHSCORE_FILE
         _fast_dedup(path)
+        # Optional compact summary for Highscore after dedup/normalisation
+        try:
+            if getattr(cfg, 'HIGHSCORE_SUMMARY_ENABLED', True) and os.path.exists(path):
+                import csv as _csv
+                lo = max(0.0, float(getattr(cfg,'MIN_AGRI_PROB',0.35)) - float(getattr(cfg,'NEG_LIKE_PROB_DELTA',0.05)))
+                hi = float(getattr(cfg,'MIN_AGRI_PROB',0.35))
+                nd_rng = getattr(cfg,'NEG_LIKE_NDVI_RANGE',(None,None))
+                use_nd = isinstance(nd_rng,(tuple,list)) and nd_rng[0] is not None and nd_rng[1] is not None
+                nd_lo, nd_hi = (nd_rng if use_nd else (None,None))
+                total = 0; band = 0; band_nd = 0
+                below = right1 = right2 = 0
+                cols = []
+                with open(path, newline='') as f:
+                    rd = _csv.DictReader(f)
+                    cols = rd.fieldnames or []
+                    for r in rd:
+                        total += 1
+                        try:
+                            p = float(r.get('prob'))
+                        except Exception:
+                            continue
+                        if p < lo: below += 1
+                        elif p < hi: band += 1
+                        elif p < hi + 0.05: right1 += 1
+                        else: right2 += 1
+                        if use_nd and lo <= p < hi:
+                            try:
+                                nd=float(r.get('ndvi'))
+                            except Exception:
+                                nd=None
+                            if nd is not None and nd_lo <= nd <= nd_hi:
+                                band_nd += 1
+                print(f"Highscore summary => rows={total}; HN_prob_only={band} in [{lo:.2f},{hi:.2f}); ", end='')
+                if use_nd:
+                    print(f"HN_with_NDVI={band_nd}; ", end='')
+                else:
+                    print(f"HN_with_NDVI=n/a; ", end='')
+                print(f"prob dist: <{lo:.2f}={below}, [{lo:.2f},{hi:.2f})={band}, [{hi:.2f},{hi+0.05:.2f})={right1}, ≥{hi+0.05:.2f}={right2}")
+                if cols:
+                    need = ['tile','row','col','lat','lon']
+                    extra = [c for c in ('prob','ndvi','score') if c in cols]
+                    print("Highscore columns:", ','.join(need + extra))
+        except Exception as _e_sum:
+            print(f"Highscore summary skipped: {_e_sum}")
     if getattr(cfg, 'PROBABLE_AGRI_LIST_ENABLED', False):
         path = PROBABLE_AGRI_FILE
         _fast_dedup(path)

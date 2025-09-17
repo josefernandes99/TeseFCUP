@@ -22,13 +22,13 @@ CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
 GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
 # Persistent informative pixel sets
 # Split control: independent toggles for Highscore vs ProbableAgri
-HIGHSCORE_LIST_ENABLED = True       # default ON
+HIGHSCORE_LIST_ENABLED = False       # default ON
 PROBABLE_AGRI_LIST_ENABLED = False  # default OFF
 HIGHSCORE_FILE = os.path.join(LABELS_DIR, "highscore.csv")
 PROBABLE_AGRI_FILE = os.path.join(LABELS_DIR, "probableAgri.csv")
 HIGHSCORE_KML_GLOBAL = os.path.join(LABELS_DIR, "highscore_top.kml")
 PROBABLE_AGRI_KML_GLOBAL = os.path.join(LABELS_DIR, "probableAgri_top.kml")
-# Backward-compat alias (deprecated): treated as "any list enabled"
+# Backward-compatible alias (deprecated): treated as "any list enabled"
 PERSISTENT_LISTS_ENABLED = HIGHSCORE_LIST_ENABLED or PROBABLE_AGRI_LIST_ENABLED
 FINAL_LABELS_FILE = os.path.join(LABELS_DIR, "finalLabels.csv")
 SKIPPED_PIXELS_FILE = os.path.join(LABELS_DIR, "skipped.csv")
@@ -113,7 +113,7 @@ CALIBRATION_METHOD = "isotonic"  # "sigmoid" fast; "isotonic" needs more data
 CALIBRATION_FOLDS = 3           # 3–5 typical
 
 # Candidate selection
-NUM_CANDIDATES_PER_ROUND = 25          # 20–50 typical (depends on label capacity)
+NUM_CANDIDATES_PER_ROUND = 50         # 20–50 typical (depends on label capacity)
 CANDIDATE_PROB_LOWER = 0.30              # Must be ≤ MIN_AGRI_PROB; defines lower bound of candidate band
 CANDIDATE_DBSCAN_EPS_KM = 1.5           # 0.5–3.0 km typical; spatial diversity
 CANDIDATE_NEGATIVE_QUOTA = 0.30         # 0 disables; use 10–30% of candidates when enabled
@@ -125,12 +125,12 @@ NEG_LIKE_NDVI_PERC_RANGE = (0.6, 0.9)  # Percentile window when RELATIVE=True (e
 
 # Composite ranking weights
 UNCERTAINTY_BAND_DELTA = 0.05  # Treat |p-MIN_AGRI_PROB| < delta as uncertain for persistence weighting
-HIGHSCORE_TOP_K = 0            # 0 or less => no size limit; otherwise keep top-K informative pixels
+HIGHSCORE_TOP_K = 10000        # 0 or less => no size limit; otherwise keep top-K informative pixels
 HIGHSCORE_COMPONENT_WEIGHTS = {"uncertainty": 0.5, "representativeness": 0.3, "consistency": 0.2}  # sum≈1
-PROBABLE_AGRI_TOP_K = 0        # 0 or less => no size limit; otherwise keep top-K probable-agri pixels
+PROBABLE_AGRI_TOP_K = 10000    # 0 or less => no size limit; otherwise keep top-K probable-agri pixels
 PROBABLE_AGRI_COMPONENT_WEIGHTS = {"confidence": 0.7, "representativeness": 0.3}
 HIGHSCORE_KML_TOP_PIXELS = 10000       # Cap per-pixel KML to avoid huge files (0 disables cap)
-PROBABLE_AGRI_KML_TOP_PIXELS = 10000    # Cap per-pixel KML to avoid huge files (0 disables cap)
+PROBABLE_AGRI_KML_TOP_PIXELS = 10000   # Cap per-pixel KML to avoid huge files (0 disables cap)
 
 # Model training
 RESNET_EPOCHS = 10       # 5–20 typical
@@ -154,10 +154,10 @@ REPEATED_VALIDATION_REPEATS = 5   # >1 enables repeated validation with mean/std
 # --------------------------
 # POSTPROCESSING CONFIG
 # --------------------------
-SIEVE_MIN_SIZE = 10
-SIEVE_KEEP_PROB = 0.85            # Must be > MIN_AGRI_PROB. Red (very certain) ≥ this; Orange ∈ [MIN_AGRI_PROB, SIEVE_KEEP_PROB)
+SIEVE_MIN_SIZE = 5
+SIEVE_KEEP_PROB = 0.80            # Must be > MIN_AGRI_PROB. Red (very certain) ≥ this; Orange ∈ [MIN_AGRI_PROB, SIEVE_KEEP_PROB)
 SIEVE_KEEP_MODE = "pixel"      # "component" keeps whole component if any pixel ≥ SIEVE_KEEP_PROB; else "pixel" keeps only high-prob pixels
-SIEVE_USE_KEEP_PROB = True         # If True, apply SIEVE_KEEP_PROB in component/pixel rules; else fall back to MIN_AGRI_PROB
+SIEVE_USE_KEEP_PROB = False         # If True, apply SIEVE_KEEP_PROB in component/pixel rules; else fall back to MIN_AGRI_PROB
 
 # Final sweep (thresholds, sieve, morphology)
 FINAL_SWEEP_ENABLED = True
@@ -191,7 +191,7 @@ INFER_BATCH_OVERRIDE_SVM = 1_000_000
 INFER_BATCH_OVERRIDE_RANDOMFOREST = 400_000
 INFER_BATCH_OVERRIDE_XGBOOST = 500_000
 INFER_BATCH_OVERRIDE_RESNET = 200_000
-INFER_TILE_THREADS = 12         # Fewer concurrent tiles to prevent RAM spikes
+INFER_TILE_THREADS = 16         # Fewer concurrent tiles to prevent RAM spikes
 
 # Refresh/per-tile metrics optimization
 REFRESH_CHUNK_ROWS = 600_000        # Rows per chunk when computing per-tile metrics
@@ -238,9 +238,23 @@ TERRAIN_BANDS = ["ELEVATION", "SLOPE", "ASPECT"]
 # --------------------------
 # To temporarily exclude certain spectral bands from features (without
 # re-exporting GeoTIFFs), list their base names here (e.g., ["B9", "B1"]).
+
+# --------------------------
+# OUTPUT TOGGLES
+# --------------------------
+# Emit best-threshold advisory statistics and KML alongside normal-threshold outputs
+BEST_THRESHOLD_OUTPUTS_ENABLED = True
 # This affects training/inference and candidate selection features only; the
 # raw tiles remain unchanged.
 EXCLUDED_BANDS = ["B1", "B9"]
+
+# Compact console summary of persistent lists (Highscore) at startup
+HIGHSCORE_SUMMARY_ENABLED = True
+
+# Assisted labeling spatial diversity (DBSCAN haversine over lat/lon)
+ASSISTED_SPATIAL_DIVERSITY_ENABLED = True
+# Use same default distance as candidate selection; can override if needed
+ASSISTED_DIVERSITY_EPS_KM = CANDIDATE_DBSCAN_EPS_KM
 
 # --------------------------
 # MEMORY & PROCESS POOL BATCHING

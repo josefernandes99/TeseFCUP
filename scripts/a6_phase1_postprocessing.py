@@ -271,6 +271,43 @@ def postprocessing():
                 sf.write(f"Std dev tile %: {std_pct:.2f}\n")
                 sf.write(f"Min tile %: {min_pct:.2f}\n")
                 sf.write(f"Max tile %: {max_pct:.2f}\n")
+                # Per-island area summary using filename convention: <island>_tileX.tif
+                try:
+                    island_stats = {}
+                    for tile, _pct_agri, n_pix, n_agri in results:
+                        island = str(tile).split('_tile', 1)[0]
+                        # compute pixel area (m^2) if CRS is projected; else leave as None
+                        area_per_pixel = None
+                        tif_path = os.path.join(RAW_DATA_DIR, tile)
+                        try:
+                            with rasterio.open(tif_path) as _src:
+                                a = float(_src.transform[0])
+                                e = float(_src.transform[4])
+                                if _src.crs and not _src.crs.is_geographic:
+                                    area_per_pixel = abs(a * e)
+                        except Exception:
+                            area_per_pixel = None
+                        rec = island_stats.setdefault(island, {"tiles": 0, "pix_total": 0, "pix_agri": 0, "area_total_m2": 0.0, "area_agri_m2": 0.0})
+                        rec["tiles"] += 1
+                        rec["pix_total"] += int(n_pix)
+                        rec["pix_agri"] += int(n_agri)
+                        if area_per_pixel is not None:
+                            rec["area_total_m2"] += float(n_pix) * area_per_pixel
+                            rec["area_agri_m2"] += float(n_agri) * area_per_pixel
+                    sf.write("\nPer-island summary:\n")
+                    header = "Island, Tiles, Pixels_Total, Pixels_Agri, Agri_%"
+                    any_area = any(v.get("area_total_m2", 0.0) > 0.0 for v in island_stats.values())
+                    if any_area:
+                        header += ", Area_Total_km2, Area_Agri_km2"
+                    sf.write(header + "\n")
+                    for island, rec in sorted(island_stats.items()):
+                        agri_pct_i = (rec["pix_agri"] / rec["pix_total"] * 100.0) if rec["pix_total"] else 0.0
+                        if any_area:
+                            sf.write(f"{island}, {rec['tiles']}, {rec['pix_total']}, {rec['pix_agri']}, {agri_pct_i:.2f}, {rec['area_total_m2']/1e6:.3f}, {rec['area_agri_m2']/1e6:.3f}\n")
+                        else:
+                            sf.write(f"{island}, {rec['tiles']}, {rec['pix_total']}, {rec['pix_agri']}, {agri_pct_i:.2f}\n")
+                except Exception as _e:
+                    sf.write(f"Per-island summary failed: {_e}\n")
             # Metrics and plots similar to per-round statistics
             # Determine threshold from tag and evaluate
             old_th = cfg.MIN_AGRI_PROB
@@ -337,6 +374,12 @@ def postprocessing():
                                 plt.close()
                             except Exception as e:
                                 print(f"Final feature importance plot failed: {e}")
+                            # Family contributions chart
+                            try:
+                                from evaluation import plot_feature_family_importance as _fam_plot
+                                _fam_plot(importances, names, os.path.join(stats_dir, 'feature_importance_families.png'))
+                            except Exception:
+                                pass
             except Exception as e:
                 print(f"Final permutation importance skipped: {e}")
             # Config snapshot
