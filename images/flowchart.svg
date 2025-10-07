@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420">
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#374151"/>
+    </marker>
+    <style>
+      .box   { fill:#f8fafc; stroke:#334155; stroke-width:2; rx:10; ry:10; }
+      .label { font-family: Arial, Helvetica, sans-serif; font-size:15px; fill:#0f172a; font-weight:600; }
+      .arrow { stroke:#374151; stroke-width:1.6; fill:none; marker-end:url(#arrow); }
+      .hint  { font-family: Arial, Helvetica, sans-serif; font-size:12px; fill:#475569; font-weight:600; }
+    </style>
+  </defs>
+
+  <!-- Pre-loop boxes -->
+  <rect class="box" x="20"  y="175" width="180" height="70"/>
+  <rect class="box" x="230" y="175" width="180" height="70"/>
+
+  <!-- Active Learning loop boxes -->
+  <rect class="box" x="460" y="90"  width="180" height="60"/>
+  <rect class="box" x="700" y="90"  width="180" height="60"/>
+  <rect class="box" x="700" y="210" width="180" height="60"/>
+  <rect class="box" x="460" y="210" width="180" height="60"/>
+
+  <!-- Post and results -->
+  <rect class="box" x="950" y="90"  width="220" height="60"/>
+  <rect class="box" x="950" y="210" width="220" height="60"/>
+
+  <!-- Main arrows -->
+  <line class="arrow" x1="200" y1="210" x2="230" y2="210"/>
+  <path class="arrow" d="M410,210 L 440,120 L 460,120"/>
+  <line class="arrow" x1="640" y1="120" x2="700" y2="120"/>
+  <line class="arrow" x1="790" y1="150" x2="790" y2="210"/>
+  <line class="arrow" x1="700" y1="240" x2="640" y2="240"/>
+  <line class="arrow" x1="550" y1="210" x2="550" y2="150"/>
+  <line class="arrow" x1="880" y1="120" x2="950" y2="120"/>
+  <line class="arrow" x1="1060" y1="150" x2="1060" y2="210"/>
+
+  <!-- Loop label -->
+  <text class="hint" x="670" y="180" text-anchor="middle">Active-learning rounds 1..N</text>
+
+  <!-- Labels -->
+  <text class="label" x="110" y="215" text-anchor="middle">GEE Export</text>
+  <text class="label" x="320" y="215" text-anchor="middle">Preprocessing</text>
+  <text class="label" x="550" y="125" text-anchor="middle">Train Model</text>
+  <text class="label" x="790" y="125" text-anchor="middle">Infer Tiles</text>
+  <text class="label" x="790" y="245" text-anchor="middle">Select Candidates</text>
+  <text class="label" x="550" y="245" text-anchor="middle">Candidate Labelling</text>
+  <text x="1060" y="120" text-anchor="middle">
+    <tspan class="label" x="1060" dy="-5">Postprocess</tspan>
+    <tspan class="hint"  x="1060" dy="20">threshold + sieve</tspan>
+  </text>
+  <text class="label" x="1060" y="245" text-anchor="middle">Results</text>
+</svg>

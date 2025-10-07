@@ -1,0 +1,21 @@
+{
+  "name": "pythonproject",
+  "version": "1.0.0",
+  "description": "**CropSegProject** provides a streamlined pipeline to detect potential agricultural areas using multi-temporal Sentinel-2 data from Google Earth Engine.  The current code focuses on an iterative active‑learning approach where you label a few pixels, train a simple model, and progressively improve the predictions.",
+  "main": "index.js",
+  "scripts": {
+    "codex": "codex"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josefernandes99/TeseFCUP.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/josefernandes99/TeseFCUP/issues"
+  },
+  "homepage": "https://github.com/josefernandes99/TeseFCUP#readme"
+}
