@@ -13,7 +13,8 @@ def load_labels(path: str) -> List[Dict[str, str]]:
     if not os.path.exists(path):
         return []
     with open(path, "r", newline="") as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    return cfg.filter_label_rows(rows)
 
 
 def _ensure_min_per_class(y: np.ndarray, min_per_split: int) -> bool:

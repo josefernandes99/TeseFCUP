@@ -18,9 +18,11 @@ psutil==5.9.8
 matplotlib==3.8.4
 
 # Machine Learning
-torch==2.5.0
 scikit-learn==1.5.0
-xgboost==2.0.3
+
+# Optional
+# PyTorch is no longer required by the pipeline. Install manually if you
+# intend to run GPU diagnostics via scripts/check_gpu_acceleration.py.
 
 # Notes
 # - Removed: scikit-image, numba, filelock (unused by active pipeline).

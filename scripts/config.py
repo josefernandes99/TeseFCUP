@@ -1,5 +1,7 @@
 # scripts/config.py
+import glob
 import os
+from typing import Iterable, List, Optional
 
 # --------------------------
 # PATHS
@@ -15,9 +17,116 @@ for folder in [RAW_DATA_DIR, ROUNDS_DIR, LABELS_DIR]:
     if not os.path.exists(folder):
         os.makedirs(folder)
 
+SELECTED_ISLAND: Optional[str] = None
+
+
+def _normalize_island(name: Optional[str]) -> Optional[str]:
+    if not isinstance(name, str):
+        return None
+    trimmed = name.strip()
+    return trimmed.lower() if trimmed else None
+
+
+def extract_island_name(tile_name: str) -> Optional[str]:
+    """Return the island prefix from a tile filename."""
+    if not tile_name:
+        return None
+    name = os.path.basename(tile_name)
+    if name.lower().endswith(".tif"):
+        name = name[:-4]
+    if "_tile" not in name:
+        return None
+    return name.split("_tile", 1)[0] or None
+
+
+def discover_islands(raw_dir: Optional[str] = None) -> List[str]:
+    """Scan the raw directory and list unique island prefixes."""
+    raw_dir = raw_dir or RAW_DATA_DIR
+    islands = set()
+    try:
+        for entry in os.listdir(raw_dir):
+            if not entry.lower().endswith(".tif"):
+                continue
+            island = extract_island_name(entry)
+            if island:
+                islands.add(island)
+    except FileNotFoundError:
+        return []
+    return sorted(islands)
+
+
+def set_selected_island(name: Optional[str]) -> None:
+    """Store the island filter to be applied across the pipeline."""
+    global SELECTED_ISLAND
+    SELECTED_ISLAND = name.strip() if isinstance(name, str) and name.strip() else None
+
+
+def get_selected_island() -> Optional[str]:
+    return SELECTED_ISLAND
+
+
+def tile_matches_island(tile_name: str, island: Optional[str] = None) -> bool:
+    target = _normalize_island(island or SELECTED_ISLAND)
+    if target is None:
+        return True
+    tile_island = extract_island_name(tile_name)
+    return _normalize_island(tile_island) == target if tile_island else False
+
+
+def filter_paths_by_island(paths: Iterable[str], island: Optional[str] = None) -> List[str]:
+    target = _normalize_island(island or SELECTED_ISLAND)
+    if target is None:
+        return list(paths)
+    filtered = []
+    for path in paths:
+        name = os.path.basename(path)
+        if tile_matches_island(name, target):
+            filtered.append(path)
+    return filtered
+
+
+def list_raw_tiles(
+    pattern: str = "*.tif",
+    raw_dir: Optional[str] = None,
+    island: Optional[str] = None,
+    base_only: bool = True,
+) -> List[str]:
+    """Return raw tile paths respecting the selected island filter."""
+    raw_dir = raw_dir or RAW_DATA_DIR
+    matches = glob.glob(os.path.join(raw_dir, pattern))
+    matches = filter_paths_by_island(matches, island=island)
+    if base_only:
+        base = []
+        for path in matches:
+            name = os.path.basename(path)
+            if "_tile" not in name or "overlay" in name.lower():
+                continue
+            base.append(path)
+        matches = base
+    return sorted(matches)
+
+
+def filter_label_rows(rows: Iterable[dict], island: Optional[str] = None) -> List[dict]:
+    """Keep only label rows that belong to the chosen island."""
+    target = _normalize_island(island or SELECTED_ISLAND)
+    if target is None:
+        return list(rows)
+    filtered = []
+    for row in rows:
+        tile = row.get("tile") if isinstance(row, dict) else None
+        if tile and tile_matches_island(tile, target):
+            filtered.append(row)
+    return filtered
+
+
+MASTER_LABELS_FILE = os.path.join(LABELS_DIR, "labels.csv")
+TRAINING_LABELS_FILE = os.path.join(LABELS_DIR, "trainingLabels.csv")
+TESTING_LABELS_FILE = os.path.join(LABELS_DIR, "testingLabels.csv")
 LABELS_FILE = os.path.join(LABELS_DIR, "labels.csv")
 TEMP_LABELS_FILE = os.path.join(LABELS_DIR, "temp_labels.csv")
-LABELS_KML = os.path.join(LABELS_DIR, "labels.kml")
+TRAINING_LABELS_KML = os.path.join(LABELS_DIR, "trainingLabels.kml")
+TESTING_LABELS_KML = os.path.join(LABELS_DIR, "testingLabels.kml")
+LABELS_KML = TRAINING_LABELS_KML
 CANDIDATE_KML = os.path.join(LABELS_DIR, "candidate_patch.kml")
 GRID_KML_DIR = os.path.join(LABELS_DIR, "grids")
 # Persistent informative pixel sets
@@ -52,9 +161,9 @@ MYPLACES_KML = os.environ.get("MYPLACES_KML", _default_myplaces)
 # --------------------------
 ROI_COORDS = []
 TIMESTAMPS = [
-    ("2019-01-01", "2019-04-30"),
-    ("2019-05-01", "2019-08-31"),
-    ("2019-09-01", "2019-12-31"),
+    ("2024-01-01", "2024-04-30"),
+    ("2024-05-01", "2024-08-31"),
+    ("2024-09-01", "2024-12-31"),
 ]
 CLOUDY_PIXEL_PERCENTAGE = 100
 BANDS = [
@@ -68,6 +177,10 @@ INDICES = [
     "NDRE", "GNDVI", "OSAVI", "NDWI", "BSI"  # new
 ]
 
+# Google Cloud Storage export target for Earth Engine jobs
+GCS_BUCKET = os.environ.get("EE_GCS_BUCKET", "fcup-thesis-2025")
+GCS_PATH_PREFIX = os.environ.get("EE_GCS_PATH_PREFIX", "2024")
+
 # --------------------------
 # INITIAL LABELING CONFIG
 # --------------------------
@@ -79,7 +192,8 @@ DUPLICATE_TOLERANCE = 0.0001
 # --------------------------
 # ACTIVE LEARNING CONFIG
 # --------------------------
-SUPPORTED_MODELS = ["ResNet", "SVM", "RandomForest", "XGBoost"]  # Available model backends
+SUPPORTED_MODELS = ["SVM", "RandomForest", "Ensemble"]  # Available model backends
+ENSEMBLE_EXPORT_BASE_MODELS = False  # Skip per-base inference/exports when using ensemble
 SVM_PARAMS = {  # C≈0.5–10; gamma: "scale"/"auto"; cache_size in MB
     "C": 3.0,
     "kernel": "rbf",
@@ -88,14 +202,76 @@ SVM_PARAMS = {  # C≈0.5–10; gamma: "scale"/"auto"; cache_size in MB
     "cache_size": 2048,
 }
 RF_PARAMS = {"n_estimators": 200, "max_depth": 10, "min_samples_leaf": 1, "class_weight": "balanced"}  # trees≈200–400; depth≈8–14
-XGB_PARAMS = {  # Tuned for speed+accuracy; can be grid-searched
-    "n_estimators": 400,
-    "max_depth": 6,
-    "learning_rate": 0.05,
-    "subsample": 0.9,
-    "colsample_bytree": 0.8,
-    "reg_lambda": 1.0,
+
+# Ensemble (stacking) configuration
+ENSEMBLE_BASE_MODELS = ("SVM", "RandomForest")
+ENSEMBLE_STACKING_FOLDS = 3          # Out-of-fold predictions to train the stacking head
+ENSEMBLE_LOGREG_PARAMS = {
+    "penalty": "l2",
+    "C": 1.0,
+    "solver": "lbfgs",
+    "max_iter": 200,
 }
+ENSEMBLE_RUNTIME_STATS_ENABLED = True  # Aggregate base vs ensemble contributions during inference
+
+# Auto-tuning (warm-start mini grid)
+AUTO_TUNE_HISTORY_FILE = os.path.join(BASE_DIR, "auto_tuning_history.json")
+AUTO_TUNE_MAX_COMBOS = 6  # cap per model per round to control runtime
+AUTO_TUNE_SVM_SEEDS = [
+    {
+        "SVM_PARAMS": {"C": 1.0, "gamma": "scale", "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.33,
+        "SIEVE_MIN_SIZE": 5,
+    },
+    {
+        "SVM_PARAMS": {"C": 3.0, "gamma": "scale", "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.35,
+        "SIEVE_MIN_SIZE": 5,
+    },
+    {
+        "SVM_PARAMS": {"C": 5.0, "gamma": "auto", "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.37,
+        "SIEVE_MIN_SIZE": 5,
+    },
+]
+AUTO_TUNE_RF_SEEDS = [
+    {
+        "RF_PARAMS": {"n_estimators": 250, "max_depth": 10, "min_samples_leaf": 1, "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.34,
+        "SIEVE_MIN_SIZE": 5,
+    },
+    {
+        "RF_PARAMS": {"n_estimators": 350, "max_depth": 12, "min_samples_leaf": 2, "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.35,
+        "SIEVE_MIN_SIZE": 5,
+    },
+    {
+        "RF_PARAMS": {"n_estimators": 450, "max_depth": 14, "min_samples_leaf": 2, "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.36,
+        "SIEVE_MIN_SIZE": 7,
+    },
+]
+AUTO_TUNE_ENSEMBLE_SEEDS = [
+    {
+        "SVM_PARAMS": {"C": 3.0, "gamma": "scale", "class_weight": "balanced"},
+        "RF_PARAMS": {"n_estimators": 350, "max_depth": 12, "min_samples_leaf": 2, "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.35,
+        "SIEVE_MIN_SIZE": 5,
+    },
+    {
+        "SVM_PARAMS": {"C": 5.0, "gamma": "auto", "class_weight": "balanced"},
+        "RF_PARAMS": {"n_estimators": 400, "max_depth": 10, "min_samples_leaf": 2, "class_weight": "balanced"},
+        "MIN_AGRI_PROB": 0.36,
+        "SIEVE_MIN_SIZE": 5,
+    },
+]
+AUTO_TUNE_SVM_C_FACTORS = [0.5, 1.5]
+AUTO_TUNE_SVM_NUMERIC_GAMMA_FACTORS = [0.5, 2.0]
+AUTO_TUNE_THRESHOLD_DELTA = 0.02
+AUTO_TUNE_SIEVE_STEPS = [0, 2]
+AUTO_TUNE_RF_ESTIMATOR_STEP = 100
+AUTO_TUNE_RF_DEPTH_STEP = 2
+AUTO_TUNE_RF_LEAF_OPTIONS = [1, 2, 3]
 
 # Splits
 TRAIN_FRACTION = 0.7  # 0.6–0.8 typical; must satisfy TRAIN+VAL+TEST ≤ 1.0
@@ -114,12 +290,12 @@ CALIBRATION_FOLDS = 3           # 3–5 typical
 
 # Candidate selection
 NUM_CANDIDATES_PER_ROUND = 50         # 20–50 typical (depends on label capacity)
-CANDIDATE_PROB_LOWER = 0.30              # Must be ≤ MIN_AGRI_PROB; defines lower bound of candidate band
-CANDIDATE_DBSCAN_EPS_KM = 1.5           # 0.5–3.0 km typical; spatial diversity
-CANDIDATE_NEGATIVE_QUOTA = 0.30         # 0 disables; use 10–30% of candidates when enabled
-NEG_LIKE_PROB_RANGE = (0.35, 0.4)      # Base/fallback; dynamically adjusted from MIN_AGRI_PROB via NEG_LIKE_PROB_DELTA
+CANDIDATE_PROB_LOWER = 0.28              # Must be ≤ MIN_AGRI_PROB; defines lower bound of candidate band
+CANDIDATE_DBSCAN_EPS_KM = 0.8           # 0.5–3.0 km typical; spatial diversity
+CANDIDATE_NEGATIVE_QUOTA = 0.40         # 0 disables; use 20–40% when chasing hard negatives
+NEG_LIKE_PROB_RANGE = (0.28, 0.36)      # Base/fallback; dynamically adjusted from MIN_AGRI_PROB via NEG_LIKE_PROB_DELTA
 NEG_LIKE_PROB_DELTA = 0.05             # Effective prob range = (MIN_AGRI_PROB - DELTA, MIN_AGRI_PROB)
-NEG_LIKE_NDVI_RANGE = (0.15, 0.45)        # Agri-like NDVI window (tune per region)
+NEG_LIKE_NDVI_RANGE = (0.10, 0.60)        # Agri-like NDVI window (tune per region)
 NEG_LIKE_NDVI_RELATIVE = True         # If True, use NDVI percentiles from current predictions
 NEG_LIKE_NDVI_PERC_RANGE = (0.6, 0.9)  # Percentile window when RELATIVE=True (e.g., 60th–90th)
 
@@ -133,11 +309,11 @@ HIGHSCORE_KML_TOP_PIXELS = 10000       # Cap per-pixel KML to avoid huge files (
 PROBABLE_AGRI_KML_TOP_PIXELS = 10000   # Cap per-pixel KML to avoid huge files (0 disables cap)
 
 # Model training
-RESNET_EPOCHS = 10       # 5–20 typical
-RESNET_LR = 0.001        # 1e-4–3e-3 typical
-BATCH_SIZE = 32          # Tune to memory
 MIN_AGRI_PROB = 0.35      # Decision threshold (Orange ≥ this). Ensure CANDIDATE_PROB_LOWER ≤ this
-
+AUTO_USE_BEST_THRESHOLD = True  # If True, skip manual threshold prompt and adopt round best-th for outputs
+AUTO_CANDIDATE_PROB_MARGIN = 0.10   # Offset added to the round threshold when deriving the candidate floor
+AUTO_CANDIDATE_PROB_MIN = 0.10      # Lower bound for the candidate floor under auto threshold mode
+AUTO_NEG_LIKE_DELTA_MIN = 0.05      # Minimum probability band for negative-like picks under auto mode
 # Inference performance
 INFER_CHUNKING_ENABLED = True          # Improves stability on large tiles; no effect on results
 INFER_MAX_PIXELS_PER_BATCH = 1_000_000     # Smaller batches to reduce peak RAM
@@ -149,7 +325,8 @@ FEATURE_CACHE_MAX_TILES_IN_MEMORY = 8    # Keep at most 2 tiles in memory to cap
 FEATURE_SET = "base"  # one of: base, temporal_only, textures_only, temporal_textures, full
 TEXTURE_WINDOW_SIZE = 7
 RUN_PERMUTATION_IMPORTANCE = True
-REPEATED_VALIDATION_REPEATS = 5   # >1 enables repeated validation with mean/std aggregation
+PERMUTATION_IMPORTANCE_JOBS = 1   # Use 1 to avoid heavy parallel forks on Windows/WSL
+REPEATED_VALIDATION_REPEATS = 10   # >1 enables repeated validation with mean/std aggregation
 
 # --------------------------
 # POSTPROCESSING CONFIG
@@ -160,9 +337,10 @@ SIEVE_KEEP_MODE = "pixel"      # "component" keeps whole component if any pixel 
 SIEVE_USE_KEEP_PROB = False         # If True, apply SIEVE_KEEP_PROB in component/pixel rules; else fall back to MIN_AGRI_PROB
 
 # Final sweep (thresholds, sieve, morphology)
-FINAL_SWEEP_ENABLED = True
-FINAL_THRESHOLDS = [0.30, 0.35, 0.40]  # Sweep around MIN_AGRI_PROB
+FINAL_SWEEP_ENABLED = False
+FINAL_THRESHOLDS = [0.28, 0.33, 0.38]  # Sweep around MIN_AGRI_PROB
 FINAL_SIEVE_SIZES = [0, 5, 10]         # Include a wider sieve range for robustness
+FINAL_ROUND_ENABLED = False  # Skip final grid search/inference when False
 # Final-round combos only sweep threshold (th) and sieve (s); morphology disabled
 FINAL_MORPH_OPEN = False
 FINAL_MORPH_KERNEL_SIZES = [3]
@@ -189,8 +367,6 @@ NOTE_OPTIONS = [
 AUTO_BATCH_TUNING_ENABLED = True
 INFER_BATCH_OVERRIDE_SVM = 1_000_000
 INFER_BATCH_OVERRIDE_RANDOMFOREST = 400_000
-INFER_BATCH_OVERRIDE_XGBOOST = 500_000
-INFER_BATCH_OVERRIDE_RESNET = 200_000
 INFER_TILE_THREADS = 16         # Fewer concurrent tiles to prevent RAM spikes
 
 # Refresh/per-tile metrics optimization
@@ -198,6 +374,9 @@ REFRESH_CHUNK_ROWS = 600_000        # Rows per chunk when computing per-tile met
 REFRESH_TILE_THREADS = 2            # Limit parallelism during refresh steps
 REFRESH_KD_WORKERS = 4              # Lower KDTree workers to reduce memory pressure
 GZIP_COMPRESSLEVEL = 0              # 1–3 is fast; higher compresses more but is slower
+
+# Polygonisation tuning
+POLYGONIZE_WORKERS = 1              # Process workers for tile polygonisation (1 => sequential)
 
 # ANN/hnswlib removed: representativeness uses exact sklearn NN only.
 

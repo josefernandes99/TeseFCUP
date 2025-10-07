@@ -2,6 +2,19 @@
 
 This file summarizes key changes and conclusions from recent Codex CLI sessions.
 
+## 2025‑09‑19 — ResNet removal and pipeline cleanup
+- Removed the ResNet backend from `a3_phase1_active_learning_round.py`: deleted the PyTorch network, trimmed batch-tuning logic, and now only SVM and RandomForest models can be trained.
+- Simplified `a4_phase1_active_learning_loop.py`, `final_grid_search.py`, and `ready_to_run_phase1.py` so menus, grid search, and resume mode no longer mention ResNet; only the two remaining models are offered.
+- Updated configuration, requirements, README, and thesis text to match the slimmer model set and dropped the Torch requirement (now optional for the GPU checker only).
+
+## 2025‑09‑19 — Model streamlining, calibrated forests, and safer polygonisation
+- Retired the XGBoost path entirely: removed config/toggles, CLI prompts, grid-search combos, docs, and the dependency pin so only ResNet, SVM, and RandomForest remain active.
+- Wrapped RandomForest training in `CalibratedClassifierCV` (when class counts permit) to align its probabilities with the SVM pipeline without retraining twice on tiny folds.
+- ResNet now carves out a validation split each round, applies early stopping (patience/min-delta), and restores the best checkpoint before scripting; new config knobs (`RESNET_VAL_SPLIT`, `RESNET_MIN_VAL_SAMPLES`, `RESNET_EARLY_STOPPING_*`).
+- Polygonisation workers respect a new `POLYGONIZE_WORKERS` setting (default 1) so Windows runs avoid out-of-memory crashes from repeated sklearn imports; non-Windows hosts can still opt into parallel processing.
+- Updated tooling (`check_gpu_acceleration.py`, readme, history) to reflect the leaner model set and cleaned up stale XGBoost guidance.
+- Pruned requirements and code imports to load heavy sklearn modules lazily, easing spawn overhead in multiprocessing sections.
+
 ## 2025‑09‑11 — Cache cleanup, script audit, re‑org plan, and final‑run guidance
 - Round cache auto‑cleanup added (disk space):
   - Issue: rounds 5–8 left `_global_refresh/` and `_tile_preds/` behind because cleanup only existed in an alternate path.
@@ -33,7 +46,6 @@ This file summarizes key changes and conclusions from recent Codex CLI sessions.
   - Common: `MIN_AGRI_PROB=0.35`, `SIEVE_MIN_SIZE=5`; isotonic calibration, 3 folds.
   - SVM (RBF): `C=3.0`, `gamma='scale'`, `class_weight='balanced'`.
   - RandomForest: `n_estimators=500`, `max_depth=12`, `min_samples_leaf=2`, `class_weight='balanced'`.
-  - XGBoost: `n_estimators=700`, `max_depth=6`, `learning_rate=0.05`, `subsample=0.9`, `colsample_bytree=0.8`, `reg_lambda=1.0` (GPU if available; else CPU hist). Calibrate probabilities after training.
   - ResNet (tabular): `epochs=20`, `learning_rate=5e‑4`, `batch_size=128` (reduce if memory constrained).
 
 - Final sweep guidance:
@@ -66,12 +78,12 @@ Notes
   - Rewrote Resumo in PT‑PT, enabled Portuguese hyphenation only for the Resumo block with high penalties (minimal hyphenation), normalised “pixel” and “verdade de terreno”.
   - Tightened Resumo by ~5–6 lines without losing content; then expanded Abstract wording by ~3–4 lines (no new content) to balance lengths.
   - Removed roman (i)…(v) enumeration style; replaced with parallel, semicolon‑separated phrasing.
-  - Keywords aligned across languages; include all four models: Random Forest, Support Vector Machine, XGBoost, ResNet; added “Change detection / Deteção de alterações”.
+- Keywords aligned across languages; include all models in use (Random Forest, Support Vector Machine, ResNet); added “Change detection / Deteção de alterações”.
   - PDF metadata updated to “Cape Verde” and to the new keyword list.
 - “Cape Verde” harmonisation:
   - Replaced “Cabo Verde” with “Cape Verde” across English content files; Resumo keeps “Cabo Verde” as per PT‑PT.
 - Acronyms and usage:
-  - Added ROC, XGBoost, ResNet to `acros.tex`; used short‑form `\acs{…}` across chapters after the lists so full expansions don’t repeat.
+- Added ROC and ResNet to `acros.tex`; used short-form `\acs{…}` across chapters after the lists so full expansions don’t repeat.
 - State of the Art + Intro related work:
   - Replaced prior generic cites with user‑provided references only; added “Applied Studies and Regional Context” (chap‑art) and a “Brief Related Work” (intro) section with focused citations:
     - Pereira et al., 2022 (cashew orchards, Guinea‑Bissau) — supports indices + seasonal compositing for crop classes.
@@ -182,7 +194,7 @@ Notes
   - Replaced the visual overview with a hand‑drawn SVG that accurately represents the Active Learning loop: Train → Infer Tiles → Select Candidates → Human Labeling → back to Train, labeled “Active Learning Rounds 1..N”. Arrows and labels are drawn above boxes; curved entries replaced with polylines for crisp, centered arrowheads. Two‑line label in Post‑process is centered as a group. (images/flowchart.svg)
 
 - New utilities
-  - GPU diagnostics: scripts/check_gpu_acceleration.py checks nvidia‑smi, Torch CUDA, and XGBoost GPU with clear pass/fail panels and next steps.
+- GPU diagnostics: scripts/check_gpu_acceleration.py checks nvidia-smi and Torch CUDA with clear pass/fail panels and next steps.
   - Optional PNG exporter for the flowchart (requires CairoSVG); README currently embeds SVG directly. (scripts/export_flowchart_png.py)
 
 - Configuration and requirements
@@ -192,7 +204,7 @@ Notes
 - Notes and next steps
   - If Windows lacks Cairo runtime, prefer SVG in README (works in PyCharm/GitHub). PNG export script remains optional.
   - generatePersistents supports future flags (e.g., --mode, --rounds) if needed.
-  - For CUDA on Windows, prefer installing Torch CUDA wheels; XGBoost GPU is most robust under WSL2/Linux.
+- For CUDA on Windows, prefer installing Torch CUDA wheels.
 ## 2025‑09‑13 — Visualization upgrades, per‑island summaries, manual‑label snapping, and HN assisted flow
 
 - Evaluation/plots improvements:
@@ -270,3 +282,17 @@ Notes:
 - Proposed hyperparameter adjustments (RF tree count/depth, SVM C, calibration folds, class weights) framed as discussion-only steps to trade precision vs recall safely.
 - Audited pipeline scripts to list runtime bottlenecks and produced ordered optimisation ideas (reuse per-tile predictions in postprocessing, trim final sweep grid, warm feature cache, defer permutation importance, adjust repeated validation, ensure GPU usage, right-size inference batches/threads, prune predictions output).
 - Confirmed no files were altered during this diagnostic session; all suggestions remain pending user approval.
+## 2025-09-19 — Pipeline log & auto tuning overhaul
+- Implemented auto/grid combo staging (`auto_testing/…`, final results stored under the selected combo folder).
+- Cached training matrices and evaluated hyperparameter combos without running tile inference; only the winning combo executes inference once.
+- Consolidated threshold outputs: when auto thresholding is enabled, each model now emits a single set of stats/KMLs with advisory metrics saved as JSON.
+- Added ensemble/SVM/RF diagnostics reuse and fixed residual `json` alias crashes in secondary exports.
+- Upgraded console UX (Rich panels, stable progress bars, structured logging).
+
+## 2025-09-21 — Thesis expansion, listings, and citation cleanup
+- Expanded multiple thesis chapters (Introduction, State of the Art, Methodology, Implementation, Results scaffold, Conclusion) with additional context on SIDS agriculture, stakeholder needs, label uncertainty mitigation, and operational safeguards.
+- Added six illustrative code listings (feature stack assembly, active-learning round orchestration, configuration snapshot excerpt, candidate scoring routine, post-processing sweep, CLI invocation) and configured them to compile safely with the thesis template.
+- Introduced a new rule in `AGENTS.md` for future sessions describing how to embed listings without triggering LaTeX errors (use `lstlisting`, supported languages, escape underscores via `\path{...}`, etc.).
+- Replaced temporary web placeholder citations with proper BibTeX entries (`ewingchow2024sids`, `northcutt2021confident`, and others) and updated the narrative around manual labelling risk and pipeline robustness.
+- Adjusted textual references that previously contained raw underscores (paths, filenames) and tweaked the project-structure listing, eliminating lingering overfull hboxes.
+- Normalised the cover template PDF header to version 1.5 so pdfTeX includes it without warnings once a TeX distribution is available locally.

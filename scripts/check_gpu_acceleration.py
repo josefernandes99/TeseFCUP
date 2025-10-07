@@ -5,7 +5,6 @@ Lightweight GPU diagnostics for this pipeline.
 Checks:
 - NVIDIA driver and device visibility (nvidia-smi)
 - PyTorch CUDA (version, availability, simple matmul)
-- XGBoost GPU training (tiny booster with gpu_hist)
 
 Exit code:
 - 0 if all requested components either pass or are not installed (but no hard failures)
@@ -91,30 +90,6 @@ def check_torch():
         return False, "torch.cuda.is_available() == False"
 
 
-def check_xgboost_gpu():
-    try:
-        import xgboost as xgb
-        import numpy as np
-    except Exception as e:
-        _print("XGBoost", f"Not installed ({e}). Skipping XGBoost checks.")
-        return None, None
-    details = [f"XGBoost version: {getattr(xgb, '__version__', 'unknown')}"]
-    try:
-        X = np.random.rand(2000, 10).astype('float32')
-        y = (X.sum(axis=1) > 5).astype('int32')
-        d = xgb.DMatrix(X, label=y)
-        params = {"tree_method": "gpu_hist", "predictor": "gpu_predictor", "max_depth": 4, "verbosity": 0}
-        xgb.train(params, d, num_boost_round=10)
-        details.append("GPU train (gpu_hist): OK")
-        _print("XGBoost GPU", "\n".join(details), ok=True)
-        return True, None
-    except Exception as e:
-        details.append(f"GPU train failed: {e}")
-        details.append("Tip: if on Windows, XGBoost wheels may not include GPU; use WSL2 for best support.")
-        _print("XGBoost GPU", "\n".join(details), ok=False)
-        return False, str(e)
-
-
 def summarize(results):
     lines = ["Environment:"]
     lines.append(f"  OS: {platform.system()} {platform.release()} | Python {platform.python_version()}")
@@ -137,9 +112,6 @@ def guidance():
     tips.append("  pip uninstall -y torch torchvision torchaudio")
     tips.append("  pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.5.0 torchvision torchaudio")
     tips.append("")
-    tips.append("If XGBoost GPU fails on Windows: prefer WSL2 for GPU support, or allow CPU fallback.")
-    tips.append("  In WSL2, install CUDA-enabled torch as above and 'pip install xgboost'.")
-    tips.append("")
     tips.append("Ensure NVIDIA driver is installed; 'nvidia-smi' should work in the shell.")
     _print("Next Steps (if failures)", "\n".join(tips))
 
@@ -148,7 +120,6 @@ def main():
     results = {}
     results["nvidia-smi"] = check_nvidia_smi()
     results["PyTorch CUDA"] = check_torch()
-    results["XGBoost GPU"] = check_xgboost_gpu()
     summarize(results)
     # Exit with 1 if a component is installed but failed
     failed = any(status is False for (status, _) in results.values())

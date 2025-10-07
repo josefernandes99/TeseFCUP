@@ -25,6 +25,20 @@ from al_shared import snap_to_pixel_center
 from memory_watcher import start_memory_watcher, free_unused_memory
 from joblib import load as _joblib_load
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from progress_utils import console, print_section
+
+
+def _prompt_menu(title: str, options: list[tuple[str, str]], prompt: str = "Select option") -> str:
+    table = Table.grid(padding=(0, 1))
+    table.add_column("Opt", justify="right", style="cyan", no_wrap=True)
+    table.add_column("Description", justify="left")
+    for key, desc in options:
+        table.add_row(key, desc)
+    console.print(Panel.fit(table, title=title, border_style="bright_blue"))
+    return console.input(f"[bold white]{prompt}: [/bold white]").strip()
 
 # --- Module-scope helpers for dedup ProcessPool (Windows-friendly) ---
 def _dedup_sort_chunk_by_key(input_csv, output_csv):
@@ -125,8 +139,49 @@ STEP_ORDER = [
     "postprocessing",
 ]
 
+def _prompt_island_selection() -> None:
+    """Interactive island picker that stores the global selection."""
+    while True:
+        islands = cfg.discover_islands()
+        if islands:
+            menu_options = [(str(idx), name) for idx, name in enumerate(islands, 1)]
+            menu_options.append(("R", "Rescan"))
+            console.print(Panel.fit("Available islands detected in raw/", border_style="green"))
+            pick = _prompt_menu("Islands", menu_options, prompt="Island").strip()
+            if pick.lower() == "r":
+                continue
+            if pick.isdigit():
+                idx = int(pick)
+                if 1 <= idx <= len(islands):
+                    cfg.set_selected_island(islands[idx - 1])
+                    break
+            if pick:
+                for name in islands:
+                    if name.lower() == pick.lower():
+                        cfg.set_selected_island(name)
+                        break
+                else:
+                    console.print("[yellow]Invalid choice. Please pick one of the listed islands.[/yellow]")
+                    continue
+                break
+            console.print("[yellow]Invalid choice. Please pick one of the listed islands.[/yellow]")
+        else:
+            console.print("[yellow]No tiles found in raw/. Enter the island name you plan to work with.[/yellow]")
+            console.print("[dim]Leave blank to continue without a filter; the menu will reuse that later.[/dim]")
+            pick = console.input("Island name => ").strip()
+            if pick:
+                cfg.set_selected_island(pick)
+            else:
+                cfg.set_selected_island(None)
+            break
+    sel = cfg.get_selected_island()
+    if sel:
+        console.print(f"[bold green]Island selected:[/bold green] {sel}")
+    else:
+        console.print("[yellow]No island filter applied; pipeline will use every tile it finds.[/yellow]")
+
 def main():
-    print("=== Starting PythonProject Pipeline ===\n")
+    console.rule("PythonProject Pipeline")
     # Apply environment tuning early (BLAS/GDAL) so downstream libs honor it.
     try:
         import os as _os
@@ -154,9 +209,9 @@ def main():
                     pass
             _atexit.register(_close_env)
         except Exception as _e:
-            print(f"Rasterio Env setup skipped: {_e}")
+            console.print(f"[yellow]Rasterio Env setup skipped:[/yellow] {_e}")
     except Exception as _e:
-        print(f"Env tuning skipped: {_e}")
+        console.print(f"[yellow]Env tuning skipped:[/yellow] {_e}")
     # Removed outdated startup note to reduce console noise
     # Set up console log tee (stdout + stderr) to data/phase1/consoleLogs.txt
     try:
@@ -242,7 +297,7 @@ def main():
         except Exception:
             pass
     except Exception as e:
-        print(f"Log setup failed: {e}")
+        console.print(f"[yellow]Log setup failed:[/yellow] {e}")
     # Start memory watcher to keep system headroom stable (avoids IDE JRE OOM)
     _mw = None
     try:
@@ -251,13 +306,18 @@ def main():
             ivl = int(getattr(cfg, 'MEMORY_WATCHER_INTERVAL_SEC', 5))
             _mw = start_memory_watcher(threshold_percent=thr, check_interval=ivl)
     except Exception as _e:
-        print(f"Memory watcher not started: {_e}")
+        console.print(f"[yellow]Memory watcher not started:[/yellow] {_e}")
+
+    _prompt_island_selection()
 
     # Startup choice: New run vs Load last run
     choice = None
     while choice not in ("1", "2"):
-        print("Start mode => [1] New run, [2] Load last run")
-        choice = input("=> ").strip()
+        choice = _prompt_menu(
+            "Start Mode",
+            [("1", "New run"), ("2", "Load last run")],
+            prompt="Selection"
+        )
 
     ensure_labels_file()
     # evaluation now uses stratified splits from labels; no evaluate.csv required
@@ -301,10 +361,9 @@ def main():
                                 resume_mchoice = 'SVM'
                             elif kind == 'randomforest':
                                 resume_mchoice = 'RandomForest'
-                            elif kind == 'xgboost':
-                                resume_mchoice = 'XGBoost'
                             elif kind == 'resnet':
-                                resume_mchoice = 'ResNet'
+                                print("Found a legacy ResNet model. ResNet support was removed; please retrain with SVM or RandomForest.")
+                                resume_mchoice = None
                         except Exception:
                             pass
                         # Load config snapshot to recover hyperparameters
@@ -323,8 +382,6 @@ def main():
                                     resume_params['SVM_PARAMS'] = snap_cfg['SVM_PARAMS']
                                 if resume_mchoice == 'RandomForest' and 'RF_PARAMS' in snap_cfg:
                                     resume_params['RF_PARAMS'] = snap_cfg['RF_PARAMS']
-                                if resume_mchoice == 'XGBoost' and 'XGB_PARAMS' in snap_cfg:
-                                    resume_params['XGB_PARAMS'] = snap_cfg['XGB_PARAMS']
                         except Exception:
                             pass
         except Exception:
@@ -337,70 +394,126 @@ def main():
                 else:
                     init_gee()
             elif step == "download_data":
-                if not glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")):
+                if not cfg.list_raw_tiles():
                     download_data()
                 else:
-                    print("Raw data already present; skipping download.")
+                    console.print("[dim]Raw data already present; skipping download.[/dim]")
                 # After a1: verify features/indices presence and readiness
                 try:
                     _verify_feature_stack()
                 except Exception as e:
-                    print(f"Feature stack verification failed: {e}")
+                    console.print(f"[yellow]Feature stack verification failed:[/yellow] {e}")
             elif step == "initial_labeling":
                 if choice == "1":
                     initial_labeling()
                 else:
-                    print("Resume mode: skipping initial labeling (using existing labels/temp_labels).")
+                    console.print("[dim]Resume mode: skipping initial labeling (using existing labels/temp_labels).[/dim]")
             elif step == "active_learning_loop":
                 # In resume mode, restart from the last round number; else fresh from 1
-                mode = input("Hyper-parameter mode: [1] grid search, [2] specify => ").strip()
+                mode = _prompt_menu(
+                    "Hyper-parameter Mode",
+                    [("1", "Grid search"), ("2", "Manual specify"), ("3", "Auto tuning")],
+                    prompt="Mode"
+                )
                 if mode == "1":
-                    print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest, 4=XGBoost")
-                    models = ["ResNet", "SVM", "RandomForest", "XGBoost"]
-                    ch = input("=> ").strip()
-                    mchoice = models[int(ch) - 1] if ch in ["1", "2", "3", "4"] else "RandomForest"
+                    model_choice = _prompt_menu(
+                        "Model",
+                        [("1", "SVM"), ("2", "RandomForest")],
+                        prompt="Model"
+                    )
+                    models = {"1": "SVM", "2": "RandomForest"}
+                    mchoice = models.get(model_choice, "RandomForest")
                     if choice == "2" and last_round and last_round_dir:
-                        print(f"Resume mode: restarting round {last_round} from current state.")
+                        console.print(f"[dim]Resume mode: restarting round {last_round} from current state.[/dim]")
                         # Optionally clean only that round folder to ensure fresh outputs
                         try:
                             import shutil as _shutil
                             _shutil.rmtree(last_round_dir)
-                            print(f"Deleted last round folder => {last_round_dir}")
+                            console.print(f"[dim]Deleted last round folder => {last_round_dir}[/dim]")
                         except Exception as _e:
-                            print(f"Could not delete last round folder (continuing): {_e}")
+                            console.print(f"[yellow]Could not delete last round folder (continuing): {_e}[/yellow]")
                         run_grid_search(mchoice)
                     else:
                         run_grid_search(mchoice)
                     return
-                else:
+                elif mode == "3":
                     if choice == "2" and resume_mchoice:
                         mchoice = resume_mchoice
-                        params = resume_params or {}
-                        print(f"Resume mode: using previous model '{mchoice}' with params: {params}")
+                        console.print(f"[dim]Resume mode: using previous model '{mchoice}' for auto tuning.[/dim]")
                     else:
-                        print("Choose model => 1=ResNet, 2=SVM, 3=RandomForest, 4=XGBoost")
-                        models = ["ResNet", "SVM", "RandomForest", "XGBoost"]
-                        ch = input("=> ").strip()
-                        if ch in ["1", "2", "3", "4"]:
-                            mchoice = models[int(ch) - 1]
-                        else:
-                            mchoice = "RandomForest"
-                        params = collect_user_hyperparams(mchoice)
+                        model_choice = _prompt_menu(
+                            "Model",
+                            [("1", "SVM"), ("2", "RandomForest"), ("3", "Ensemble")],
+                            prompt="Model"
+                        )
+                        models = {"1": "SVM", "2": "RandomForest", "3": "Ensemble"}
+                        mchoice = models.get(model_choice, "RandomForest")
                     start_r = 1 if choice == "1" or not last_round else last_round
                     if choice == "2" and last_round_dir:
-                        print(f"Resume mode: restarting round {start_r} from current state.")
+                        console.print(f"[dim]Resume mode: restarting round {start_r} from current state.[/dim]")
                         try:
                             import shutil as _shutil
                             _shutil.rmtree(last_round_dir)
-                            print(f"Deleted last round folder => {last_round_dir}")
+                            console.print(f"[dim]Deleted last round folder => {last_round_dir}[/dim]")
                         except Exception as _e:
-                            print(f"Could not delete last round folder (continuing): {_e}")
+                            console.print(f"[yellow]Could not delete last round folder (continuing): {_e}[/yellow]")
                     active_learning_loop(
                         start_r,
                         None,
                         mchoice,
                         checkpoint_cb=None,
-                        use_grid_search=False,
+                        tuning_mode="auto",
+                        user_params=None,
+                    )
+                    # export merged final labels for convenience
+                    try:
+                        import csv as _csv
+                        from config import LABELS_FILE, TEMP_LABELS_FILE, FINAL_LABELS_FILE
+                        rows = []
+                        if os.path.exists(LABELS_FILE):
+                            with open(LABELS_FILE) as f:
+                                rows += list(_csv.DictReader(f))
+                        if os.path.exists(TEMP_LABELS_FILE):
+                            with open(TEMP_LABELS_FILE) as f:
+                                rows += list(_csv.DictReader(f))
+                        if rows:
+                            keys = ["id","lat","lon","tile","label","notes"]
+                            with open(FINAL_LABELS_FILE, 'w', newline='') as f:
+                                w = _csv.DictWriter(f, fieldnames=keys)
+                                w.writeheader()
+                                for r in rows:
+                                    w.writerow({k: r.get(k, '') for k in keys})
+                            console.print(f"[dim]Exported merged labels => {FINAL_LABELS_FILE}[/dim]")
+                    except Exception as e:
+                        console.print(f"[yellow]Final labels export failed:[/yellow] {e}")
+                else:
+                    if choice == "2" and resume_mchoice:
+                        mchoice = resume_mchoice
+                        params = resume_params or {}
+                        console.print(f"[dim]Resume mode: using previous model '{mchoice}' with params: {params}[/dim]")
+                    else:
+                        model_choice = _prompt_menu(
+                            "Model",
+                            [("1", "SVM"), ("2", "RandomForest")],
+                            prompt="Model"
+                        )
+                        mchoice = "SVM" if model_choice == "1" else "RandomForest"
+                        params = collect_user_hyperparams(mchoice)
+                    start_r = 1 if choice == "1" or not last_round else last_round
+                    if choice == "2" and last_round_dir:
+                        console.print(f"[dim]Resume mode: restarting round {start_r} from current state.[/dim]")
+                        try:
+                            import shutil as _shutil
+                            _shutil.rmtree(last_round_dir)
+                            console.print(f"[dim]Deleted last round folder => {last_round_dir}[/dim]")
+                        except Exception as _e:
+                            console.print(f"[yellow]Could not delete last round folder (continuing): {_e}[/yellow]")
+                    active_learning_loop(
+                        start_r,
+                        None,
+                        mchoice,
+                        checkpoint_cb=None,
+                        tuning_mode="manual",
                         user_params=params,
                     )
                     # export merged final labels for convenience
@@ -421,20 +534,23 @@ def main():
                                 w.writeheader()
                                 for r in rows:
                                     w.writerow({k: r.get(k, '') for k in keys})
-                            print(f"Exported merged labels => {FINAL_LABELS_FILE}")
+                            console.print(f"[dim]Exported merged labels => {FINAL_LABELS_FILE}[/dim]")
                     except Exception as e:
-                        print(f"Final labels export failed: {e}")
+                        console.print(f"[yellow]Final labels export failed:[/yellow] {e}")
             elif step == "postprocessing":
                 postprocessing()
                 # Final compact grid search as the last step of the pipeline
-                try:
-                    print("\n=== Running final grid search round ===")
-                    run_final_grid_search(mchoice)
-                except Exception as _e:
-                    print(f"Final grid search skipped: {_e}")
-        print("\n=== Pipeline Completed Successfully! ===")
+                if getattr(cfg, 'FINAL_ROUND_ENABLED', False):
+                    try:
+                        console.print("\n[bold blue]Running final grid search round[/bold blue]")
+                        run_final_grid_search(mchoice)
+                    except Exception as _e:
+                        console.print(f"[yellow]Final grid search skipped:[/yellow] {_e}")
+                else:
+                    console.print("[dim]Final round disabled via configuration; skipping final grid search.[/dim]")
+        console.print("\n[bold green]Pipeline Completed Successfully![/bold green]")
     except Exception as e:
-        print(f"Pipeline failed: {e}")
+        console.print(f"[red]Pipeline failed:[/red] {e}")
     finally:
         # Stop the memory watcher and free memory one last time
         try:
@@ -1017,7 +1133,7 @@ def _verify_feature_stack():
     - Each channel has some non-zero data (not entirely missing)
     Logs a confirmation list; warns for any issues.
     """
-    tiles = sorted(glob.glob(os.path.join(RAW_DATA_DIR, '*.tif')))
+    tiles = cfg.list_raw_tiles()
     if not tiles:
         print("Feature stack check: no tiles found under raw/; skipping.")
         return

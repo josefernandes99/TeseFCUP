@@ -63,9 +63,8 @@ def _rebuild_predictions_for_round(round_num: int, round_dir: str, model_path: s
 
     model = joblib.load(model_path)
     # Inference across tiles (streamed per tile to CSV shards)
-    from config import RAW_DATA_DIR
-    tifs = [tp for tp in glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
-            if ("_overlay" not in os.path.basename(tp) and "_th" not in os.path.basename(tp))]
+    tifs = [tp for tp in cfg.list_raw_tiles()
+            if ("_th" not in os.path.basename(tp))]
     if not tifs:
         console.print("[yellow]No raw tiles found; skipping predictions.[/yellow]")
         return ""

@@ -8,8 +8,6 @@ from multiprocessing import cpu_count
 import json
 from itertools import product
 import numpy as np
-from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import f1_score, accuracy_score, roc_auc_score, average_precision_score
 
 from config import LABELS_FILE, TEMP_LABELS_FILE, ROUNDS_DIR
 import config as cfg
@@ -62,6 +60,9 @@ def run_grid_search(model_choice):
         print("No labeled features to grid-search.")
         return
     # auto-reduce folds
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.metrics import f1_score, accuracy_score, roc_auc_score, average_precision_score
+
     min_class = min(np.bincount(y)) if len(np.unique(y)) > 1 else 1
     n_splits = max(2, min(cfg.CV_FOLDS, min_class)) if cfg.CV_AUTO_REDUCE else cfg.CV_FOLDS
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=None if cfg.SPLIT_SEED_MODE=="random" else cfg.SPLIT_RANDOM_SEED)

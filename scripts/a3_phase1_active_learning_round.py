@@ -2,6 +2,7 @@
 # scripts/a3_phase1_active_learning_round.py
 
 import os
+import shutil
 from multiprocessing import cpu_count
 
 # -----------------------------------------------------------------------------
@@ -22,6 +23,7 @@ import random
 import time
 import datetime
 import json
+import math
 from pyproj import Transformer
 
 import numpy as np
@@ -29,14 +31,9 @@ import rasterio
 from rasterio.features import shapes, sieve
 from shapely.geometry import shape, Polygon, MultiPolygon
 from shapely.ops import unary_union, transform as shp_transform
-import torch
-import torch.nn as nn
 from joblib import dump
 from memory_watcher import free_unused_memory
-from progress_utils import new_progress
-from sklearn.svm import SVC
-from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import RandomForestClassifier
+from progress_utils import new_progress, console
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
 
@@ -44,22 +41,34 @@ from config import (
     RAW_DATA_DIR,
     ROUNDS_DIR,
     TEMP_LABELS_FILE,
-    RESNET_EPOCHS,
-    RESNET_LR,
-    BATCH_SIZE,
     NOTE_OPTIONS,
 )
 import config as cfg
-from evaluation import evaluate_model
+from evaluation import evaluate_model as evaluate_model_cv
 from evaluation import compute_best_threshold_weighted
-from evaluation import _plot_confusion_normalised, _plot_pr_roc_combined, plot_feature_family_importance
-from sklearn.inspection import permutation_importance
-from sklearn.metrics import get_scorer
+from evaluation import (
+    _plot_confusion_normalised,
+    _plot_pr_roc_combined,
+    _plot_threshold_sweep,
+    _plot_runtime_summary,
+    _plot_runtime_breakdown,
+    plot_feature_family_importance,
+)
 from splits import stratified_train_val_test_indices
 from features import current_feature_names
 import subprocess, sys
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 from scipy.spatial import cKDTree
+from sklearn.model_selection import StratifiedKFold
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    precision_score,
+    recall_score,
+    f1_score,
+    accuracy_score,
+    roc_auc_score,
+    average_precision_score,
+)
 
 # Note: grid KML generation is performed once at pipeline start.
 from features import add_derived_features
@@ -81,23 +90,117 @@ def prompt_note():
     print("Invalid choice; using 'Other'.")
     return NOTE_OPTIONS[-1]
 
+
+def _runtime_summary_path():
+    return os.path.join(cfg.DATA_DIR, "runtime_metrics.csv")
+
+
+def _update_runtime_summary_csv(round_num: int, runtime_row: dict):
+    path = _runtime_summary_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    header = [
+        "round",
+        "training_seconds",
+        "inference_seconds",
+        "evaluation_seconds",
+        "candidate_seconds",
+        "other_seconds",
+        "total_seconds",
+        "timestamp",
+    ]
+    rows = []
+    if os.path.exists(path):
+        try:
+            with open(path, newline="") as f:
+                reader = csv.DictReader(f)
+                rows = [row for row in reader]
+        except Exception:
+            rows = []
+    str_round = str(round_num)
+    updated = False
+    for row in rows:
+        if row.get("round") == str_round:
+            for key in header[1:]:
+                value = runtime_row.get(key, 0.0)
+                if key == "timestamp":
+                    row[key] = value
+                else:
+                    try:
+                        row[key] = f"{float(value):.3f}"
+                    except Exception:
+                        row[key] = "0.000"
+            updated = True
+            break
+    if not updated:
+        new_row = {"round": str_round}
+        for key in header[1:]:
+            value = runtime_row.get(key, 0.0)
+            if key == "timestamp":
+                new_row[key] = value
+            else:
+                try:
+                    new_row[key] = f"{float(value):.3f}"
+                except Exception:
+                    new_row[key] = "0.000"
+        rows.append(new_row)
+    try:
+        rows.sort(key=lambda r: int(r.get("round", 0)))
+    except Exception:
+        pass
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=header)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _write_runtime_artifacts(round_num: int, runtime_data: dict, stats_root_base: str):
+    os.makedirs(stats_root_base, exist_ok=True)
+    runtime_copy = dict(runtime_data)
+    total = float(runtime_copy.get("total_seconds", 0.0))
+    comp = (
+        float(runtime_copy.get("training_seconds", 0.0))
+        + float(runtime_copy.get("inference_seconds", 0.0))
+        + float(runtime_copy.get("evaluation_seconds", 0.0))
+        + float(runtime_copy.get("candidate_seconds", 0.0))
+    )
+    runtime_copy["other_seconds"] = max(0.0, total - comp)
+    runtime_copy.setdefault("timestamp", datetime.datetime.utcnow().isoformat() + "Z")
+    with open(os.path.join(stats_root_base, "runtime.json"), "w", encoding="utf-8") as f:
+        json.dump(runtime_copy, f, indent=2)
+    _update_runtime_summary_csv(round_num, runtime_copy)
+    try:
+        _plot_runtime_summary(_runtime_summary_path(), os.path.join(cfg.DATA_DIR, "runtime_summary.png"))
+    except Exception:
+        pass
+    try:
+        _plot_runtime_breakdown(runtime_copy, os.path.join(stats_root_base, "runtime_breakdown.png"))
+    except Exception:
+        pass
+
 # -----------------------------------------------------------------------------
 # 3) Model wrappers & training, now with full‐feature statistics and scaling
 # -----------------------------------------------------------------------------
 class SklearnWrapper:
-    def __init__(self, clf, feat_means, feat_std):
+    def __init__(self, clf, feat_means, feat_std, kind=None):
         self.clf = clf
         self.feat_means = feat_means
         self.feat_std = feat_std
-        self.kind = 'svm' if 'SVC' in str(type(clf)) else ('randomforest' if 'Forest' in str(type(clf)) else ('xgboost' if 'xgboost' in str(type(clf)).lower() else 'sklearn'))
+        if kind:
+            self.kind = kind
+        else:
+            t = str(type(clf))
+            if 'SVC' in t:
+                self.kind = 'svm'
+            elif 'Forest' in t:
+                self.kind = 'randomforest'
+            else:
+                self.kind = 'sklearn'
 
     def predict_proba(self, X):
-        # 1) impute missing with feature means
         inds = np.where(np.isnan(X))
         if inds[0].size:
             X = X.copy()
             X[inds] = np.take(self.feat_means, inds[1])
-        # 2) z‐score scale with global stats
         Xs = (X - self.feat_means) / (self.feat_std + 1e-6)
         return self.clf.predict_proba(Xs)
 
@@ -109,98 +212,124 @@ class SklearnWrapper:
         return self
 
 
-class TabularResNet(nn.Module):
-    def __init__(self, input_dim, hidden_dim=64):
-        super().__init__()
-        self.fc_in     = nn.Linear(input_dim, hidden_dim)
-        self.bn_in     = nn.BatchNorm1d(hidden_dim)
-        self.block1_fc = nn.Linear(hidden_dim, hidden_dim)
-        self.block1_bn = nn.BatchNorm1d(hidden_dim)
-        self.block2_fc = nn.Linear(hidden_dim, hidden_dim)
-        self.block2_bn = nn.BatchNorm1d(hidden_dim)
-        self.out       = nn.Linear(hidden_dim, 2)
+class StackedEnsembleWrapper:
+    def __init__(self, base_wrappers, logreg, base_order, training_info=None):
+        self.base_wrappers = base_wrappers  # dict[str, SklearnWrapper]
+        self.logreg = logreg
+        self.base_order = list(base_order)
+        self.kind = 'ensemble'
+        self.training_info = training_info or {}
+        self._runtime_stats = None
 
-    def forward(self, x):
-        x  = torch.relu(self.bn_in(self.fc_in(x)))
-        r1 = x
-        b1 = torch.relu(self.block1_bn(self.block1_fc(x))); x = b1 + r1
-        r2 = x
-        b2 = torch.relu(self.block2_bn(self.block2_fc(x))); x = b2 + r2
-        return self.out(x)
+    def _stack_base_probs(self, X):
+        parts = []
+        for name in self.base_order:
+            probs = self.base_wrappers[name].predict_proba(X)[:, 1].astype(np.float32, copy=False)
+            parts.append(probs)
+        stacked = np.stack(parts, axis=1)  # shape (n_samples, n_bases)
+        return stacked
 
+    def _update_runtime_stats(self, stacked, ensemble_probs):
+        if self._runtime_stats is None:
+            return
+        stats = self._runtime_stats
+        count = stacked.shape[0]
+        stats['total_samples'] += int(count)
+        stats['ensemble_sum'] += float(np.sum(ensemble_probs))
+        stats['ensemble_sum_sq'] += float(np.sum(ensemble_probs ** 2))
+        for idx, name in enumerate(self.base_order):
+            col = stacked[:, idx]
+            base_stats = stats['base'][name]
+            base_stats['sum'] += float(np.sum(col))
+            base_stats['sum_sq'] += float(np.sum(col ** 2))
+            base_stats['sum_abs_diff'] += float(np.sum(np.abs(col - ensemble_probs)))
+            base_stats['sum_prod_ens'] += float(np.sum(col * ensemble_probs))
+        if len(self.base_order) >= 2:
+            pair = stats['pair']
+            pair['sum_prod'] += float(np.sum(stacked[:, 0] * stacked[:, 1]))
 
-class PytorchResNetWrapper:
-    def __init__(self, scripted_net, feat_means, feat_std):
-        self.net = scripted_net.eval()
-        self.feat_means = feat_means
-        self.feat_std = feat_std
-        self.kind = 'resnet'
+    def enable_runtime_stats(self):
+        if not getattr(cfg, 'ENSEMBLE_RUNTIME_STATS_ENABLED', True):
+            self._runtime_stats = None
+            return
+        stats = {
+            'total_samples': 0,
+            'ensemble_sum': 0.0,
+            'ensemble_sum_sq': 0.0,
+            'base': {},
+            'pair': {'sum_prod': 0.0},
+        }
+        for name in self.base_order:
+            stats['base'][name] = {
+                'sum': 0.0,
+                'sum_sq': 0.0,
+                'sum_abs_diff': 0.0,
+                'sum_prod_ens': 0.0,
+            }
+        self._runtime_stats = stats
+
+    def collect_runtime_stats(self):
+        stats = self._runtime_stats
+        self._runtime_stats = None
+        if not stats or stats['total_samples'] == 0:
+            return None
+        n = stats['total_samples']
+        ensemble_mean = stats['ensemble_sum'] / n
+        ensemble_var = max(stats['ensemble_sum_sq'] / n - ensemble_mean ** 2, 0.0)
+        summary = {
+            'samples': n,
+            'ensemble': {
+                'mean_prob': ensemble_mean,
+                'std_prob': math.sqrt(ensemble_var),
+            },
+            'base': {},
+        }
+        for name in self.base_order:
+            base_stats = stats['base'][name]
+            base_mean = base_stats['sum'] / n
+            base_var = max(base_stats['sum_sq'] / n - base_mean ** 2, 0.0)
+            avg_abs_diff = base_stats['sum_abs_diff'] / n
+            cov = (base_stats['sum_prod_ens'] / n) - (base_mean * ensemble_mean)
+            corr = cov / (math.sqrt(base_var) * math.sqrt(ensemble_var) + 1e-9)
+            summary['base'][name] = {
+                'mean_prob': base_mean,
+                'std_prob': math.sqrt(base_var),
+                'avg_abs_diff_vs_ensemble': avg_abs_diff,
+                'corr_with_ensemble': corr,
+            }
+        if len(self.base_order) >= 2:
+            # Currently only two bases (SVM, RF). Report correlation between them.
+            s0 = stats['base'][self.base_order[0]]
+            s1 = stats['base'][self.base_order[1]]
+            mean0 = s0['sum'] / n
+            mean1 = s1['sum'] / n
+            var0 = max(s0['sum_sq'] / n - mean0 ** 2, 0.0)
+            var1 = max(s1['sum_sq'] / n - mean1 ** 2, 0.0)
+            cov01 = (stats['pair']['sum_prod'] / n) - (mean0 * mean1)
+            corr01 = cov01 / (math.sqrt(var0) * math.sqrt(var1) + 1e-9)
+            summary['pairwise'] = {
+                f'{self.base_order[0]}_{self.base_order[1]}': {
+                    'corr': corr01,
+                    'cov': cov01,
+                }
+            }
+        return summary
 
     def predict_proba(self, X):
-        # impute
-        inds = np.where(np.isnan(X))
-        if inds[0].size:
-            X = X.copy()
-            X[inds] = np.take(self.feat_means, inds[1])
-        # z‐score scale
-        Xs = (X - self.feat_means) / (self.feat_std + 1e-6)
-        # forward
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        xt = torch.from_numpy(Xs.astype(np.float32)).to(device)
-        with torch.no_grad():
-            logits = self.net(xt)
-            probs  = torch.softmax(logits, dim=1).cpu().numpy()
+        stacked = self._stack_base_probs(X)
+        ensemble_probs = self.logreg.predict_proba(stacked)[:, 1].astype(np.float32, copy=False)
+        self._update_runtime_stats(stacked, ensemble_probs)
+        probs = np.column_stack([1.0 - ensemble_probs, ensemble_probs])
         return probs
 
     def predict(self, X):
         return self.predict_proba(X).argmax(axis=1)
 
-    # Needed so sklearn.permutation_importance accepts this wrapper
-    def fit(self, X, y):  # no-op
+    def fit(self, X, y):
         return self
 
 
-def train_resnet(net, x_t, y_t):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    net.to(device).train()
-    ds     = torch.utils.data.TensorDataset(x_t, y_t)
-    # Use a single-process DataLoader to avoid worker spawn issues on WSL/Windows
-    loader = torch.utils.data.DataLoader(ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
-    opt    = torch.optim.Adam(net.parameters(), lr=RESNET_LR)
-    crit   = nn.CrossEntropyLoss()
-    for ep in range(RESNET_EPOCHS):
-        total_loss = 0.0
-        for bx, by in loader:
-            bx, by = bx.to(device), by.to(device)
-            opt.zero_grad()
-            logits = net(bx)
-            loss   = crit(logits, by)
-            loss.backward()
-            opt.step()
-            total_loss += loss.item()
-        if (ep+1) % 2 == 0:
-            print(f"ResNet epoch {ep+1}/{RESNET_EPOCHS}, loss={total_loss/len(loader):.4f}")
-    net.eval()
-
-
-# Cap PyTorch internal thread pools to avoid oversubscription
-try:
-    _torch_threads = int(os.environ.get("OMP_NUM_THREADS", "1"))
-    if _torch_threads > 0:
-        try:
-            torch.set_num_threads(_torch_threads)
-        except Exception:
-            pass
-        try:
-            torch.set_num_interop_threads(1)
-        except Exception:
-            pass
-except Exception:
-    pass
-
-
-def train_model(choice, X, y):
-    """Train model using per-feature statistics from the training data."""
+def _train_single_model(choice, X, y):
     feat_means = np.nanmean(X, axis=0).astype(np.float32)
     feat_std = np.nanstd(X, axis=0).astype(np.float32)
     feat_std[feat_std == 0] = 1.0
@@ -212,73 +341,126 @@ def train_model(choice, X, y):
 
     c = choice.lower()
     if c == "svm":
+        from sklearn.svm import SVC
+        from sklearn.calibration import CalibratedClassifierCV
         params = cfg.SVM_PARAMS.copy()
         base = SVC(probability=True, **{k: v for k, v in params.items() if k != 'class_weight'})
-        clf = CalibratedClassifierCV(base, method=cfg.CALIBRATION_METHOD, cv=cfg.CALIBRATION_FOLDS)
-        clf.fit(Xs, y)
-        w = SklearnWrapper(clf, feat_means, feat_std)
-        w.kind = 'svm'
-        return w
+        class_counts = np.bincount(y)
+        min_class = int(class_counts.min()) if class_counts.size and np.all(class_counts > 0) else 0
+        cv_folds = min(int(getattr(cfg, 'CALIBRATION_FOLDS', 3)), min_class) if min_class else 0
+        if cv_folds >= 2:
+            clf = CalibratedClassifierCV(base, method=cfg.CALIBRATION_METHOD, cv=cv_folds)
+            clf.fit(Xs, y)
+        else:
+            # Fallback to the base SVC probability output when calibration CV is not feasible.
+            clf = base
+            clf.fit(Xs, y)
+        return SklearnWrapper(clf, feat_means, feat_std, kind='svm')
 
-    elif c == "randomforest":
-        rf = RandomForestClassifier(n_jobs=-1, **cfg.RF_PARAMS)
+    if c == "randomforest":
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.calibration import CalibratedClassifierCV
+        rf_base = RandomForestClassifier(n_jobs=-1, **cfg.RF_PARAMS)
+        class_counts = np.bincount(y)
+        min_class = int(class_counts.min()) if class_counts.size and np.all(class_counts > 0) else 0
+        cv_folds = min(int(getattr(cfg, 'CALIBRATION_FOLDS', 3)), min_class) if min_class else 0
+        if cv_folds >= 2:
+            rf = CalibratedClassifierCV(rf_base, method=cfg.CALIBRATION_METHOD, cv=cv_folds)
+        else:
+            rf = rf_base
         rf.fit(Xs, y)
-        w = SklearnWrapper(rf, feat_means, feat_std)
-        w.kind = 'randomforest'
-        return w
+        return SklearnWrapper(rf, feat_means, feat_std, kind='randomforest')
 
-    elif c == "resnet":
-        net = TabularResNet(input_dim=Xs.shape[1])
-        train_resnet(net, torch.from_numpy(Xs.astype(np.float32)), torch.from_numpy(y.astype(np.int64)))
-        scripted = torch.jit.script(net)
-        return PytorchResNetWrapper(scripted, feat_means, feat_std)
+    raise ValueError(f"Unknown base model choice: {choice}. Expected 'SVM' or 'RandomForest'.")
 
-    elif c in ("xgboost", "xgb"):
-        try:
-            import xgboost as xgb
-        except Exception as e:
-            raise RuntimeError("XGBoost not installed. Please install xgboost to use this model.") from e
-        params = cfg.XGB_PARAMS.copy()
-        # Try GPU first (gpu_hist + gpu_predictor). If it fails, fall back to CPU.
-        base_kwargs = dict(
-            n_estimators=int(params.get("n_estimators", 400)),
-            max_depth=int(params.get("max_depth", 6)),
-            learning_rate=float(params.get("learning_rate", 0.05)),
-            subsample=float(params.get("subsample", 0.9)),
-            colsample_bytree=float(params.get("colsample_bytree", 0.8)),
-            reg_lambda=float(params.get("reg_lambda", 1.0)),
-            objective="binary:logistic",
-            n_jobs=-1,
-            random_state=None if cfg.SPLIT_SEED_MODE == "random" else int(cfg.SPLIT_RANDOM_SEED),
-        )
-        tried_gpu = False
-        try:
-            xgb_clf = xgb.XGBClassifier(
-                tree_method="gpu_hist",
-                predictor="gpu_predictor",
-                **base_kwargs,
-            )
-            tried_gpu = True
-            xgb_clf.fit(Xs, y)
-        except Exception as _gpu_err:
-            # Fallback: CPU histogram
-            try:
-                xgb_clf = xgb.XGBClassifier(
-                    tree_method="hist",
-                    predictor="auto",
-                    **base_kwargs,
-                )
-                xgb_clf.fit(Xs, y)
-                if tried_gpu:
-                    print("XGBoost GPU unavailable; fell back to CPU (hist).")
-            except Exception as _cpu_err:
-                raise RuntimeError(f"XGBoost training failed (GPU then CPU). GPU err={_gpu_err}; CPU err={_cpu_err}")
-        w = SklearnWrapper(xgb_clf, feat_means, feat_std)
-        w.kind = 'xgboost'
-        return w
 
-    else:
-        raise ValueError(f"Unknown model choice: {choice}")
+def _compute_prob_metrics(y_true, probs):
+    metrics = {}
+    preds = (probs >= cfg.MIN_AGRI_PROB).astype(int)
+    metrics['precision'] = float(precision_score(y_true, preds, zero_division=0))
+    metrics['recall'] = float(recall_score(y_true, preds, zero_division=0))
+    metrics['f1'] = float(f1_score(y_true, preds, zero_division=0))
+    metrics['accuracy'] = float(accuracy_score(y_true, preds))
+    try:
+        metrics['roc_auc'] = float(roc_auc_score(y_true, probs))
+    except Exception:
+        metrics['roc_auc'] = float('nan')
+    try:
+        metrics['average_precision'] = float(average_precision_score(y_true, probs))
+    except Exception:
+        metrics['average_precision'] = float('nan')
+    return metrics
+
+
+def _train_stacked_ensemble(X, y):
+    base_order = list(getattr(cfg, 'ENSEMBLE_BASE_MODELS', ("SVM", "RandomForest")))
+    base_lower = [b.lower() for b in base_order]
+    if set(base_lower) != {"svm", "randomforest"}:
+        raise ValueError("ENSEMBLE_BASE_MODELS must include SVM and RandomForest")
+
+    n_samples = X.shape[0]
+    n_bases = len(base_order)
+    stack_features = np.zeros((n_samples, n_bases), dtype=np.float32)
+
+    # Determine stacking folds (respect class balance)
+    folds_cfg = int(getattr(cfg, 'ENSEMBLE_STACKING_FOLDS', 3))
+    class_counts = np.bincount(y)
+    min_class = int(class_counts.min()) if class_counts.size and np.all(class_counts > 0) else 0
+    n_splits = max(2, min(folds_cfg, min_class)) if min_class else 2
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=cfg.SPLIT_RANDOM_SEED if cfg.SPLIT_SEED_MODE == "fixed" else None)
+
+    for train_idx, val_idx in skf.split(X, y):
+        X_tr, y_tr = X[train_idx], y[train_idx]
+        X_val = X[val_idx]
+        for j, base_name in enumerate(base_order):
+            wrapper = _train_single_model(base_name, X_tr, y_tr)
+            stack_features[val_idx, j] = wrapper.predict_proba(X_val)[:, 1]
+
+    # Fit logistic regression stacking head
+    logreg_params = getattr(cfg, 'ENSEMBLE_LOGREG_PARAMS', {}) or {}
+    logreg = LogisticRegression(**logreg_params)
+    logreg.fit(stack_features, y)
+
+    # Train final base models on full dataset
+    base_wrappers = {}
+    for base_name in base_order:
+        base_wrappers[base_name] = _train_single_model(base_name, X, y)
+
+    # Diagnostics for statistics
+    diagnostics = {
+        'base_order': base_order,
+        'logreg_coef': logreg.coef_[0].tolist() if hasattr(logreg, 'coef_') else [],
+        'logreg_intercept': float(logreg.intercept_[0]) if hasattr(logreg, 'intercept_') else 0.0,
+        'stacking_folds': n_splits,
+        'metrics': {},
+    }
+    for j, base_name in enumerate(base_order):
+        diagnostics['metrics'][base_name] = _compute_prob_metrics(y, stack_features[:, j])
+    ensemble_probs_cv = logreg.predict_proba(stack_features)[:, 1]
+    diagnostics['metrics']['Ensemble'] = _compute_prob_metrics(y, ensemble_probs_cv)
+    diagnostics['probability_summary'] = {
+        base_name: {
+            'mean': float(np.mean(stack_features[:, j])) if n_samples else 0.0,
+            'std': float(np.std(stack_features[:, j])) if n_samples else 0.0,
+        }
+        for j, base_name in enumerate(base_order)
+    }
+    diagnostics['probability_summary']['Ensemble'] = {
+        'mean': float(np.mean(ensemble_probs_cv)) if n_samples else 0.0,
+        'std': float(np.std(ensemble_probs_cv)) if n_samples else 0.0,
+    }
+
+    wrapper = StackedEnsembleWrapper(base_wrappers, logreg, base_order, diagnostics)
+    wrapper.training_info = diagnostics
+    return wrapper
+
+
+def train_model(choice, X, y):
+    """Train model using per-feature statistics from the training data."""
+    c = choice.lower()
+    if c == "ensemble":
+        return _train_stacked_ensemble(X, y)
+    return _train_single_model(choice, X, y)
 
 
 # -----------------------------------------------------------------------------
@@ -1075,13 +1257,9 @@ def predict_entire_tile(tile_path, model, progress=None, task_id=None):
                 return base
             kind = (getattr(model, 'kind', '') or '').lower()
             if kind == 'svm':
-                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_SVM', 200_000)))
-            if kind == 'resnet':
-                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RESNET', 200_000)))
-            if kind == 'xgboost':
-                return min(max(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_XGBOOST', 500_000))), base)
+                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_SVM', base)))
             if kind == 'randomforest':
-                return min(max(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RANDOMFOREST', 400_000))), base)
+                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RANDOMFOREST', base)))
             return base
 
         bs = _effective_bs()
@@ -1148,7 +1326,7 @@ def save_predictions(round_folder, preds):
             chunk = preds[i:i+batch]
             w.writerows(chunk)
             _prog.update(task, advance=len(chunk))
-    print(f"Predictions written to {path}")
+    console.print(f"[progress]Shard written to {path}", style="dim")
     return path
 
 
@@ -1214,8 +1392,145 @@ def _merge_tile_prediction_csvs(round_folder, merged_path=None):
             _prog.update(task, completed=total_rows)
     # Keep per-tile shards to allow downstream steps to reuse them directly
     # (avoids re-splitting the merged predictions.csv during metrics refresh).
-    print(f"Predictions written to {merged_path}")
+    console.print(f"[progress]Merged predictions => {merged_path}", style="dim")
     return merged_path
+
+
+def _run_model_inference(model, round_num, out_dir, label):
+    os.makedirs(out_dir, exist_ok=True)
+    tifs = cfg.list_raw_tiles()
+    if not tifs:
+        console.print(f"[{label}] no raw tiles found; skipping inference.", style="yellow")
+        return None
+    console.print(f"\n[{label}] running inference on {len(tifs)} tiles...", style="bold blue")
+    start = time.time()
+    with new_progress() as prog:
+        task = prog.add_task(f"{label}", total=len(tifs))
+        for tp in tifs:
+            tile_preds = predict_entire_tile(tp, model)
+            tile_name = os.path.basename(tp)
+            _ = _write_tile_predictions_csv(out_dir, tile_name, tile_preds)
+            prog.update(task, advance=1)
+    pred_csv_path = _merge_tile_prediction_csvs(out_dir)
+    total_rows = 0
+    try:
+        with open(pred_csv_path) as f:
+            total_rows = sum(1 for _ in f) - 1
+    except Exception:
+        pass
+    console.print(f"[{label}] total pixels inferred: {total_rows}", style="cyan")
+    console.print(f"[{label}] inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}", style="cyan")
+    return pred_csv_path
+
+
+def _cleanup_model_cache(base_dir):
+    try:
+        for sub in ['_global_refresh', '_tile_preds']:
+            p = os.path.join(base_dir, sub)
+            if os.path.isdir(p):
+                shutil.rmtree(p, ignore_errors=True)
+    except Exception as _e:
+        console.print(f"Cache cleanup warning ({base_dir}): {_e}", style="yellow")
+
+
+def _export_secondary_model_outputs(model_label, model_obj, round_num, round_dir, X, y, single_threshold_mode=False):
+    label_pretty = model_label.upper()
+    console.print(f"[Diagnostics] Exporting {label_pretty} outputs", style="bold cyan")
+    model_dir = os.path.join(round_dir, "statistics", model_label)
+    pred_csv_path = _run_model_inference(model_obj, round_num, model_dir, f"{label_pretty} inference")
+    if not pred_csv_path:
+        return
+
+    try:
+        save_agricultural_polygons_kml(model_dir, round_num, pred_csv=pred_csv_path)
+    except Exception as e:
+        console.print(f"{label_pretty} KML (operating threshold) failed: {e}", style="yellow")
+
+    stats_root = model_dir
+    if single_threshold_mode:
+        normal_dir = stats_root
+    else:
+        normal_dir = os.path.join(stats_root, "normal_threshold")
+        os.makedirs(normal_dir, exist_ok=True)
+    metrics = evaluate_model_cv(model_obj, out_dir=normal_dir)
+
+    best_payload = None
+    try:
+        best_payload = _compute_best_threshold_payload(model_obj, X, y)
+    except Exception as e:
+        console.print(f"{label_pretty} best-threshold computation skipped: {e}", style="yellow")
+
+    if best_payload and not single_threshold_mode:
+        probs = best_payload["probs"]
+        yv = best_payload["y_val"]
+        best = best_payload["best"]
+        best_m = best_payload["best_metrics"]
+        best_th = float(best_payload["threshold"])
+        sweep = best_payload.get("sweep")
+        stats_dir_best = os.path.join(stats_root, "best_threshold")
+        os.makedirs(stats_dir_best, exist_ok=True)
+        from sklearn.metrics import confusion_matrix, classification_report
+        preds_best = (probs >= best_th).astype(int)
+        cm = confusion_matrix(yv, preds_best, labels=[0, 1])
+        rep = classification_report(yv, preds_best, digits=3)
+        with open(os.path.join(stats_dir_best, 'classification_report.txt'), 'w') as rf:
+            rf.write(rep)
+        _plot_confusion_normalised(yv, preds_best, os.path.join(stats_dir_best, 'confusion_matrix.png'), labels=("NonAgri","Agri"))
+        try:
+            _plot_pr_roc_combined(yv, probs, os.path.join(stats_dir_best, 'pr_roc_combined.png'), th_selected=best_th)
+        except Exception:
+            pass
+        if sweep:
+            try:
+                _plot_threshold_sweep(
+                    yv,
+                    probs,
+                    os.path.join(stats_dir_best, 'threshold_sweep.png'),
+                    selected_th=best_th,
+                    sweep=sweep,
+                )
+            except Exception as e:
+                console.print(f"{label_pretty} best-th threshold sweep skipped: {e}", style="yellow")
+        best_metrics_all = dict(best_m)
+        best_metrics_all.update({
+            "threshold": best_th,
+            "score_weighted": best.get("score", best_m.get("score", 0.0)),
+        })
+        with open(os.path.join(stats_dir_best, 'metrics.json'), 'w') as jf:
+            json.dump(best_metrics_all, jf, indent=2)
+        with open(os.path.join(stats_dir_best, 'metrics_summary.csv'), 'w', newline='') as cf:
+            w = csv.writer(cf); w.writerow(['metric','value'])
+            for k, v in best_metrics_all.items():
+                w.writerow([k, v])
+        out_best_kml = f"agricultural_patches_round_{round_num}_best_th.kml"
+        try:
+            save_agricultural_polygons_kml_at_threshold(
+                model_dir,
+                round_num,
+                best_th,
+                outfile_name=out_best_kml,
+                pred_csv=pred_csv_path
+            )
+        except Exception as e:
+            console.print(f"{label_pretty} best-threshold KML skipped: {e}", style="yellow")
+    elif best_payload and single_threshold_mode:
+        best = best_payload["best"]
+        best_m = best_payload["best_metrics"]
+        best_th = float(best_payload["threshold"])
+        best_metrics_all = dict(best_m)
+        best_metrics_all.update({
+            "threshold": best_th,
+            "score_weighted": best.get("score", best_m.get("score", 0.0)),
+        })
+        with open(os.path.join(stats_root, 'best_threshold_metrics.json'), 'w') as jf:
+            json.dump(best_metrics_all, jf, indent=2)
+
+    try:
+        dump(model_obj, os.path.join(model_dir, f"model_round_{round_num}_{model_label}.pkl"))
+    except Exception as e:
+        console.print(f"{label_pretty} model export failed: {e}", style="yellow")
+
+    _cleanup_model_cache(model_dir)
 
 
 def _load_predictions_by_tile(csv_path):
@@ -1281,17 +1596,26 @@ def save_agricultural_polygons_kml(round_folder, round_num, pred_csv=None, preds
     # Prefer per-tile shards directory
     tile_dir = os.path.join(round_folder, '_tile_preds')
     rings_all = []
+    workers_cfg = int(getattr(cfg, 'POLYGONIZE_WORKERS', max(1, (cpu_count() or 4) - 2)) or 1)
+    use_process_pool = os.path.isdir(tile_dir) and workers_cfg > 1 and os.name != 'nt'
     if os.path.isdir(tile_dir):
         files = sorted([p for p in glob.glob(os.path.join(tile_dir, '*.csv'))])
         if files:
             with new_progress() as prog:
                 task = prog.add_task("Polygonizing tiles", total=len(files))
-                max_workers = max(1, (cpu_count() or 4) - 2)
-                with ProcessPoolExecutor(max_workers=max_workers) as ex:
-                    futs = {ex.submit(_kml_polygons_from_tilefile, fp, RAW_DATA_DIR, float(cfg.MIN_AGRI_PROB), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))): fp for fp in files}
-                    for fut in as_completed(futs):
+                if use_process_pool:
+                    with ProcessPoolExecutor(max_workers=workers_cfg) as ex:
+                        futs = {ex.submit(_kml_polygons_from_tilefile, fp, RAW_DATA_DIR, float(cfg.MIN_AGRI_PROB), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))): fp for fp in files}
+                        for fut in as_completed(futs):
+                            try:
+                                rings_all.extend(fut.result() or [])
+                            except Exception:
+                                pass
+                            prog.update(task, advance=1)
+                else:
+                    for fp in files:
                         try:
-                            rings_all.extend(fut.result() or [])
+                            rings_all.extend(_kml_polygons_from_tilefile(fp, RAW_DATA_DIR, float(cfg.MIN_AGRI_PROB), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))) or [])
                         except Exception:
                             pass
                         prog.update(task, advance=1)
@@ -1365,17 +1689,26 @@ def save_agricultural_polygons_kml_at_threshold(round_folder, round_num, thresho
 
     tile_dir = os.path.join(round_folder, '_tile_preds')
     rings_all = []
+    workers_cfg = int(getattr(cfg, 'POLYGONIZE_WORKERS', max(1, (cpu_count() or 4) - 2)) or 1)
+    use_process_pool = os.path.isdir(tile_dir) and workers_cfg > 1 and os.name != 'nt'
     if os.path.isdir(tile_dir):
         files = sorted([p for p in glob.glob(os.path.join(tile_dir, '*.csv'))])
         if files:
             with new_progress() as prog:
                 task = prog.add_task("Polygonizing tiles (best-th)", total=len(files))
-                max_workers = max(1, (cpu_count() or 4) - 2)
-                with ProcessPoolExecutor(max_workers=max_workers) as ex:
-                    futs = {ex.submit(_kml_polygons_from_tilefile, fp, RAW_DATA_DIR, float(threshold), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))): fp for fp in files}
-                    for fut in as_completed(futs):
+                if use_process_pool:
+                    with ProcessPoolExecutor(max_workers=workers_cfg) as ex:
+                        futs = {ex.submit(_kml_polygons_from_tilefile, fp, RAW_DATA_DIR, float(threshold), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))): fp for fp in files}
+                        for fut in as_completed(futs):
+                            try:
+                                rings_all.extend(fut.result() or [])
+                            except Exception:
+                                pass
+                            prog.update(task, advance=1)
+                else:
+                    for fp in files:
                         try:
-                            rings_all.extend(fut.result() or [])
+                            rings_all.extend(_kml_polygons_from_tilefile(fp, RAW_DATA_DIR, float(threshold), int(getattr(cfg, 'SIEVE_MIN_SIZE', 0))) or [])
                         except Exception:
                             pass
                         prog.update(task, advance=1)
@@ -1438,6 +1771,53 @@ def save_agricultural_polygons_kml_at_threshold(round_folder, round_num, thresho
     with open(kml_path, 'wb') as f:
         f.write(xml)
     print(f"{total_polys} agricultural polygons saved to {kml_path}")
+
+
+def _compute_best_threshold_payload(model, X_full, y_full):
+    """Return per-round validation data and best threshold details."""
+    seed = cfg.SPLIT_RANDOM_SEED if cfg.SPLIT_SEED_MODE == "fixed" else None
+    tr_idx, va_idx, _ = stratified_train_val_test_indices(
+        y_full,
+        cfg.TRAIN_FRACTION,
+        cfg.VAL_FRACTION,
+        cfg.TEST_FRACTION,
+        seed,
+    )
+    if va_idx.size == 0:
+        return None
+    probs = model.predict_proba(X_full[va_idx])[:, 1]
+    y_val = y_full[va_idx]
+    best, best_metrics, sweep = compute_best_threshold_weighted(y_val, probs, return_sweep=True)
+    best_th = float(best.get("threshold", float(cfg.MIN_AGRI_PROB)))
+    return {
+        "threshold": best_th,
+        "y_val": y_val,
+        "probs": probs,
+        "best": best,
+        "best_metrics": best_metrics,
+        "sweep": sweep,
+    }
+
+
+def _effective_candidate_prob_lower():
+    """Dynamic candidate probability floor that adapts when auto threshold is on."""
+    base = float(getattr(cfg, 'CANDIDATE_PROB_LOWER', 0.30) or 0.0)
+    if getattr(cfg, 'AUTO_USE_BEST_THRESHOLD', False):
+        margin = float(getattr(cfg, 'AUTO_CANDIDATE_PROB_MARGIN', 0.05) or 0.0)
+        min_floor = float(getattr(cfg, 'AUTO_CANDIDATE_PROB_MIN', 0.10) or 0.0)
+        target = float(cfg.MIN_AGRI_PROB) + max(margin, 0.0)
+        effective = min(base, target)
+        return max(min_floor, effective)
+    return base
+
+
+def _effective_negative_delta():
+    """Width of the negative-like probability band (auto mode keeps a minimum)."""
+    base = float(getattr(cfg, 'NEG_LIKE_PROB_DELTA', 0.05) or 0.0)
+    if getattr(cfg, 'AUTO_USE_BEST_THRESHOLD', False):
+        min_band = float(getattr(cfg, 'AUTO_NEG_LIKE_DELTA_MIN', base) or 0.0)
+        return max(base, min_band)
+    return base
 
 # -----------------------------------------------------------------------------
 # 6) Candidate‐patch KML (unchanged)
@@ -1512,6 +1892,9 @@ def active_learning_round(
     return_metrics=False,
     top_n_predictions=None,
     return_predictions=False,
+    skip_inference=False,
+    skip_auto_threshold=False,
+    cached_data=None,
 ):
     """Run one active learning round.
 
@@ -1522,7 +1905,7 @@ def active_learning_round(
     labels_file : str
         CSV with existing labels used for training.
     model_choice : str
-        Which model to train ("ResNet", "SVM", or "RandomForest").
+        Which model to train ("SVM" or "RandomForest").
     request_labels : bool, optional
         If False, skip the candidate selection/labeling step. This is used for
         the final round so the user isn't prompted for more labels.
@@ -1539,43 +1922,93 @@ def active_learning_round(
         If given, only the ``top_n_predictions`` most uncertain predictions
         (by |p-0.5|) are written to predictions.csv.
     """
-    print(f"\n=== Starting Active Learning Round {round_num} ===")
+    def log(msg, style=None):
+        console.print(msg, style=style or "white", highlight=False)
+
+    console.rule(f"Round {round_num}: {model_choice}")
+    round_start = time.time()
+    runtime_data = {
+        "training_seconds": 0.0,
+        "inference_seconds": 0.0,
+        "evaluation_seconds": 0.0,
+        "candidate_seconds": 0.0,
+    }
+    auto_best_enabled = bool(getattr(cfg, 'AUTO_USE_BEST_THRESHOLD', False)) and not skip_auto_threshold
+    best_payload = None
     rnd_dir = out_dir or os.path.join(ROUNDS_DIR, f"round_{round_num}")
     os.makedirs(rnd_dir, exist_ok=True)
 
-    # load & featurize
-    rows = list(csv.DictReader(open(labels_file)))
-    if len(rows) <= 1:
-        print("Not enough labels; aborting.")
-        return None
-    X, y = [], []
-    from progress_utils import new_progress as _npb
-    with _npb() as _prog:
-        t = _prog.add_task("Extract training features", total=len(rows))
-        for idx, r in enumerate(rows):
-            feats = extract_features_from_label(r)
-            if feats is not None:
-                X.append(feats)
-                y.append(1 if r["label"].lower()=="agricultural" else 0)
-            # advance per row for accurate ETA
-            _prog.update(t, advance=1)
-    X, y = np.array(X, dtype=np.float32), np.array(y, dtype=np.int64)
+    # load & featurize (reuse cached matrices when provided)
+    rows = None
+    if cached_data and 'X' in cached_data and 'y' in cached_data:
+        X = cached_data['X']
+        y = cached_data['y']
+        rows = cached_data.get('rows')
+        if rows is None:
+            with open(labels_file, newline='') as _lf:
+                rows = cfg.filter_label_rows(list(csv.DictReader(_lf)))
+            if cached_data is not None:
+                cached_data['rows'] = rows
+    else:
+        with open(labels_file, newline='') as _lf:
+            rows = cfg.filter_label_rows(list(csv.DictReader(_lf)))
+        if len(rows) <= 1:
+            log("Not enough labels; aborting.", style="red")
+            return None
+        X, y = [], []
+        from progress_utils import new_progress as _npb
+        with _npb() as _prog:
+            t = _prog.add_task("Extract training features", total=len(rows))
+            for idx, r in enumerate(rows):
+                feats = extract_features_from_label(r)
+                if feats is not None:
+                    X.append(feats)
+                    y.append(1 if r["label"].lower()=="agricultural" else 0)
+                _prog.update(t, advance=1)
+        X, y = np.array(X, dtype=np.float32), np.array(y, dtype=np.int64)
+        if cached_data is not None:
+            cached_data['X'] = X
+            cached_data['y'] = y
+            cached_data['rows'] = rows
 
     # train & save
-    print(f"Training data shape: {X.shape}, model: {model_choice}")
+    log(f"[Round {round_num}] Training {model_choice} • samples={X.shape[0]} • features={X.shape[1] if X.size else 0}", style="bold magenta")
+    t_train = time.time()
     model = train_model(model_choice, X, y)
+    training_seconds = time.time() - t_train
+    runtime_data["training_seconds"] = training_seconds
+    log(f"[Round {round_num}] Training completed in {training_seconds:.1f}s", style="magenta")
     mp = os.path.join(rnd_dir, f"model_round_{round_num}.pkl")
     dump(model, mp)
     # keep X,y for representativeness computations
     free_unused_memory()
 
+    if skip_inference:
+        metrics = evaluate_model_cv(model, out_dir=None)
+        return metrics
+
+    ensemble_info = None
+    if getattr(model, 'kind', '') == 'ensemble':
+        ensemble_info = getattr(model, 'training_info', {}) or {}
+        coef = ensemble_info.get('logreg_coef', [])
+        base_order = ensemble_info.get('base_order', [])
+        if coef and base_order:
+            formatted = ", ".join(f"{name}:{weight:.3f}" for name, weight in zip(base_order, coef))
+            log(f"Stacking head weights ⇒ {formatted}", style="magenta")
+        else:
+            log("Stacking head weights unavailable (using default logistic parameters).", style="magenta")
+
     # inference + timing (ignore overlay/final-sweep artifacts in RAW_DATA_DIR)
-    all_tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    all_tifs = cfg.list_raw_tiles()
     tifs = [tp for tp in all_tifs if ("_overlay" not in os.path.basename(tp) and "_th" not in os.path.basename(tp))]
     start = time.time()
 
+    log(f"[Round {round_num}] Inference across {len(tifs)} tiles", style="bold blue")
     with new_progress() as prog:
         task = prog.add_task("Running inference", total=len(tifs))
+
+        if hasattr(model, 'enable_runtime_stats'):
+            model.enable_runtime_stats()
 
         # Stream predictions to per-tile CSVs to control memory usage
         def run_tile(tp):
@@ -1605,8 +2038,49 @@ def active_learning_round(
             total_rows = sum(1 for _ in f) - 1
     except Exception:
         pass
-    print(f"Total pixels inferred: {total_rows}")
-    print(f"Inference completed in {str(datetime.timedelta(seconds=int(time.time() - start)))}")
+    log(f"[Round {round_num}] Total pixels inferred: {total_rows}")
+    inference_seconds = time.time() - start
+    runtime_data["inference_seconds"] = inference_seconds
+    log(f"[Round {round_num}] Inference completed in {str(datetime.timedelta(seconds=int(inference_seconds)))}")
+
+    runtime_stats = None
+    if hasattr(model, 'collect_runtime_stats'):
+        runtime_stats = model.collect_runtime_stats()
+
+    need_best_payload = (auto_best_enabled or bool(getattr(cfg, 'BEST_THRESHOLD_OUTPUTS_ENABLED', True))) and not skip_inference
+    if need_best_payload:
+        try:
+            best_payload = _compute_best_threshold_payload(model, X, y)
+        except Exception as e:
+            best_payload = None
+            if auto_best_enabled:
+                log(f"Auto best threshold could not be computed (error: {e}); keeping existing MIN_AGRI_PROB.", style="yellow")
+        if auto_best_enabled:
+            if best_payload and np.isfinite(float(best_payload.get("threshold", np.nan))):
+                new_min = float(best_payload["threshold"])
+                old_min = float(cfg.MIN_AGRI_PROB)
+                if abs(new_min - old_min) > 1e-6:
+                    log(f"Auto best threshold: updating MIN_AGRI_PROB from {old_min:.4f} to {new_min:.4f}.", style="yellow")
+                else:
+                    log(f"Auto best threshold: best value {new_min:.4f} matches current MIN_AGRI_PROB.", style="yellow")
+                cfg.MIN_AGRI_PROB = new_min
+                cand_floor = _effective_candidate_prob_lower()
+                log(f"Auto best threshold: candidate floor set to {cand_floor:.4f} for this round.", style="yellow")
+                bm = best_payload.get("best_metrics", {})
+                try:
+                    log(
+                        "Auto best threshold diagnostics -> precision: {:.3f}, recall: {:.3f}, MCC: {:.3f}, FPR: {:.3f}".format(
+                            bm.get("precision", float('nan')),
+                            bm.get("recall", float('nan')),
+                            bm.get("mcc", float('nan')),
+                            bm.get("fpr", float('nan')),
+                        ),
+                        style="magenta",
+                    )
+                except Exception:
+                    pass
+            else:
+                log("Auto best threshold enabled but validation split provided no usable threshold; keeping existing MIN_AGRI_PROB.", style="yellow")
 
     # Optionally keep only top-N predictions by uncertainty
     preds = None
@@ -1635,24 +2109,40 @@ def active_learning_round(
             pred_csv_path = save_predictions(rnd_dir, preds)
         save_agricultural_polygons_kml(rnd_dir, round_num, pred_csv=pred_csv_path)
     else:
-        print("Using temporary predictions.csv for downstream steps (will delete).")
+        log("Using temporary predictions.csv for downstream steps (will delete).", style="dim")
         # Use the merged CSV for downstream polygonization without keeping it permanently
         save_agricultural_polygons_kml(rnd_dir, round_num, pred_csv=pred_csv_path)
 
     # Evaluate against optional evaluation set (normal threshold)
-    stats_root = os.path.join(rnd_dir, "statistics")
-    stats_dir = os.path.join(stats_root, "normal_threshold")
-    os.makedirs(stats_dir, exist_ok=True)
-    metrics = evaluate_model(model, out_dir=stats_dir)
+    stats_root_base = os.path.join(rnd_dir, "statistics")
+    os.makedirs(stats_root_base, exist_ok=True)
+    if getattr(model, 'kind', '') == 'ensemble':
+        stats_root = os.path.join(stats_root_base, "ensemble")
+    else:
+        stats_root = stats_root_base
+    os.makedirs(stats_root, exist_ok=True)
+    single_threshold_mode = auto_best_enabled
+    if single_threshold_mode:
+        stats_dir = stats_root
+    else:
+        stats_dir = os.path.join(stats_root, "normal_threshold")
+        os.makedirs(stats_dir, exist_ok=True)
+    eval_start = time.time()
+    metrics = evaluate_model_cv(model, out_dir=stats_dir)
+    runtime_data["evaluation_seconds"] = time.time() - eval_start
     if metrics is not None:
         from rich.table import Table
-        from rich.console import Console
         tbl = Table(title="Evaluation Metrics")
         tbl.add_column("Metric")
         tbl.add_column("Value", justify="right")
         for k, v in metrics.items():
             tbl.add_row(k, f"{v:.4f}" if isinstance(v, float) else str(v))
-        Console().print(tbl)
+        console.print("")
+        console.print(tbl)
+        prec = metrics.get('precision', metrics.get('macro_precision', 0.0))
+        rec = metrics.get('recall', metrics.get('macro_recall', 0.0))
+        f1 = metrics.get('f1', metrics.get('macro_f1', 0.0))
+        log(f"[Round {round_num}] Operating threshold metrics -> Precision: {prec:.3f} | Recall: {rec:.3f} | F1: {f1:.3f}", style="green")
         # Update aggregate rounds metrics chart (best-effort)
         try:
             agg_script = os.path.join(os.path.dirname(__file__), 'plot_round_metrics.py')
@@ -1660,67 +2150,145 @@ def active_learning_round(
                 subprocess.run([sys.executable, agg_script], check=False)
         except Exception:
             pass
+        console.print("")
     # snapshot config used
     try:
         snap = {k: getattr(cfg, k) for k in dir(cfg) if k.isupper()}
         with open(os.path.join(stats_dir, "config_snapshot.json"), "w") as jf:
             json.dump(snap, jf, indent=2)
     except Exception as e:
-        print(f"Config snapshot failed: {e}")
+        log(f"Config snapshot failed: {e}", style="yellow")
+
+    if getattr(model, 'kind', '') == 'ensemble':
+        ensemble_dir = os.path.join(stats_root, "ensemble_components")
+        os.makedirs(ensemble_dir, exist_ok=True)
+        if ensemble_info:
+            summary_path = os.path.join(ensemble_dir, "training_summary.json")
+            with open(summary_path, 'w') as jf:
+                json.dump(ensemble_info, jf, indent=2)
+            metrics_map = ensemble_info.get('metrics', {}) or {}
+            if metrics_map:
+                import csv as _csv
+                with open(os.path.join(ensemble_dir, 'metrics_summary.csv'), 'w', newline='') as cf:
+                    w = _csv.writer(cf)
+                    headers = ["model", "precision", "recall", "f1", "accuracy", "roc_auc", "average_precision"]
+                    w.writerow(headers)
+                    for name, m in metrics_map.items():
+                        w.writerow([
+                            name,
+                            m.get('precision', ''),
+                            m.get('recall', ''),
+                            m.get('f1', ''),
+                            m.get('accuracy', ''),
+                            m.get('roc_auc', ''),
+                            m.get('average_precision', ''),
+                        ])
+            coef = ensemble_info.get('logreg_coef', [])
+            base_order = ensemble_info.get('base_order', [])
+            weights_path = os.path.join(ensemble_dir, 'stacking_weights.txt')
+            with open(weights_path, 'w') as wf:
+                for name, weight in zip(base_order, coef):
+                    wf.write(f"{name}\t{weight:.6f}\n")
+                intercept = ensemble_info.get('logreg_intercept', 0.0)
+                wf.write(f"intercept\t{intercept:.6f}\n")
+        if runtime_stats:
+            with open(os.path.join(ensemble_dir, 'runtime_stats.json'), 'w') as jf:
+                json.dump(runtime_stats, jf, indent=2)
 
     # Best-threshold stats and KML (advisory)
     try:
         if not bool(getattr(cfg, 'BEST_THRESHOLD_OUTPUTS_ENABLED', True)):
             raise RuntimeError('BEST_THRESHOLD_OUTPUTS_ENABLED=False')
-        seed_plot = cfg.SPLIT_RANDOM_SEED if cfg.SPLIT_SEED_MODE == "fixed" else None
-        tr_idx, va_idx, _ = stratified_train_val_test_indices(
-            y, cfg.TRAIN_FRACTION, cfg.VAL_FRACTION, cfg.TEST_FRACTION, seed_plot
-        )
-        if va_idx.size:
-            probs = model.predict_proba(X[va_idx])[:, 1]
-            yv = y[va_idx]
-            best, best_m = compute_best_threshold_weighted(yv, probs)
-            best_th = float(best.get("threshold", cfg.MIN_AGRI_PROB))
-            # write best-th metrics under statistics/best_threshold
+        if not best_payload:
+            raise RuntimeError('Best threshold unavailable (no validation split).')
+        probs = best_payload["probs"]
+        yv = best_payload["y_val"]
+        best = best_payload["best"]
+        best_m = best_payload["best_metrics"]
+        best_th = float(best_payload["threshold"])
+        import csv as _csv
+        best_metrics_all = dict(best_m)
+        best_metrics_all.update({
+            "threshold": best_th,
+            "score_weighted": best.get("score", best_m.get("score", 0.0)),
+        })
+        if single_threshold_mode:
+            with open(os.path.join(stats_root, 'best_threshold_metrics.json'), 'w') as jf:
+                json.dump(best_metrics_all, jf, indent=2)
+        else:
             stats_dir_best = os.path.join(stats_root, "best_threshold")
             os.makedirs(stats_dir_best, exist_ok=True)
-            from sklearn.metrics import confusion_matrix, classification_report, ConfusionMatrixDisplay
-            import matplotlib.pyplot as _plt
+            from sklearn.metrics import confusion_matrix, classification_report
             preds_best = (probs >= best_th).astype(int)
             cm = confusion_matrix(yv, preds_best, labels=[0, 1])
             rep = classification_report(yv, preds_best, digits=3)
             with open(os.path.join(stats_dir_best, 'classification_report.txt'), 'w') as rf:
                 rf.write(rep)
             _plot_confusion_normalised(yv, preds_best, os.path.join(stats_dir_best, 'confusion_matrix.png'), labels=("NonAgri","Agri"))
-            # Combined PR+ROC at best threshold
             try:
                 _plot_pr_roc_combined(yv, probs, os.path.join(stats_dir_best, 'pr_roc_combined.png'), th_selected=best_th)
             except Exception:
                 pass
-            # metrics files
-            import json as _json, csv as _csv
-            best_metrics_all = {
-                "precision": best_m.get("precision", 0.0),
-                "recall": best_m.get("recall", 0.0),
-                "f1": best_m.get("f1", 0.0),
-                "accuracy": best_m.get("accuracy", 0.0),
-                "threshold": best_th,
-                "score_weighted": best.get("score", 0.0),
-            }
+            sweep = best_payload.get("sweep")
+            if sweep:
+                try:
+                    _plot_threshold_sweep(
+                        yv,
+                        probs,
+                        os.path.join(stats_dir_best, 'threshold_sweep.png'),
+                        selected_th=best_th,
+                        sweep=sweep,
+                    )
+                except Exception as e:
+                    console.print(f"{label_pretty} advisory threshold sweep skipped: {e}", style="yellow")
             with open(os.path.join(stats_dir_best, 'metrics.json'), 'w') as jf:
-                _json.dump(best_metrics_all, jf, indent=2)
+                json.dump(best_metrics_all, jf, indent=2)
             with open(os.path.join(stats_dir_best, 'metrics_summary.csv'), 'w', newline='') as cf:
                 w = _csv.writer(cf); w.writerow(['metric','value'])
                 for k, v in best_metrics_all.items():
                     w.writerow([k, v])
-            # Produce best-th KML while predictions are present
+        if pred_csv_path:
             out_best_kml = f"agricultural_patches_round_{round_num}_best_th.kml"
-            save_agricultural_polygons_kml_at_threshold(
-                rnd_dir, round_num, best_th, outfile_name=out_best_kml,
-                pred_csv=pred_csv_path
-            )
+            try:
+                save_agricultural_polygons_kml_at_threshold(
+                    rnd_dir,
+                    round_num,
+                    best_th,
+                    outfile_name=out_best_kml,
+                    pred_csv=pred_csv_path,
+                )
+            except Exception as e:
+                console.print(f"{label_pretty} best-threshold KML skipped: {e}", style="yellow")
     except Exception as e:
-        print(f"Best-threshold stats/KML skipped: {e}")
+        log(f"Best-threshold stats/KML skipped: {e}", style="yellow")
+
+    if getattr(model, 'kind', '') == 'ensemble':
+        try:
+            primary_kml = os.path.join(rnd_dir, f"agricultural_patches_round_{round_num}.kml")
+            if os.path.exists(primary_kml):
+                shutil.copy(primary_kml, os.path.join(stats_root, os.path.basename(primary_kml)))
+        except Exception as e:
+            log(f"Ensemble KML copy failed: {e}", style="yellow")
+        try:
+            best_kml_path = os.path.join(rnd_dir, f"agricultural_patches_round_{round_num}_best_th.kml")
+            if os.path.exists(best_kml_path):
+                shutil.copy(best_kml_path, os.path.join(stats_root, os.path.basename(best_kml_path)))
+        except Exception as e:
+            log(f"Ensemble best-th KML copy failed: {e}", style="yellow")
+        try:
+            if os.path.exists(mp):
+                shutil.copy(mp, os.path.join(stats_root, os.path.basename(mp)))
+        except Exception as e:
+            log(f"Ensemble model copy failed: {e}", style="yellow")
+        if getattr(cfg, 'ENSEMBLE_EXPORT_BASE_MODELS', False):
+            base_map = {'svm': 'svm', 'randomforest': 'rf'}
+            for base_name in getattr(model, 'base_order', []):
+                alias = base_map.get(base_name.lower(), base_name.lower())
+                base_model = model.base_wrappers.get(base_name)
+                if base_model is None:
+                    continue
+                _export_secondary_model_outputs(alias, base_model, round_num, rnd_dir, X, y, single_threshold_mode=single_threshold_mode)
+
     # Feature importance (permutation) on validation split if enabled
     try:
         if cfg.RUN_PERMUTATION_IMPORTANCE and len(np.unique(y)) > 1:
@@ -1729,8 +2297,19 @@ def active_learning_round(
                 cfg.SPLIT_RANDOM_SEED if cfg.SPLIT_SEED_MODE == "fixed" else None,
             )
             if va_idx.size > 0:
+                from sklearn.metrics import get_scorer
+                from sklearn.inspection import permutation_importance
                 scorer = get_scorer('f1')
-                pi = permutation_importance(model, X[va_idx], y[va_idx], scoring=scorer, n_repeats=5, n_jobs=-1, random_state=0)
+                n_jobs = int(getattr(cfg, 'PERMUTATION_IMPORTANCE_JOBS', 1) or 1)
+                pi = permutation_importance(
+                    model,
+                    X[va_idx],
+                    y[va_idx],
+                    scoring=scorer,
+                    n_repeats=5,
+                    n_jobs=max(1, n_jobs),
+                    random_state=0,
+                )
                 importances = pi.importances_mean
                 order = np.argsort(importances)[::-1]
                 exp_names = current_feature_names()
@@ -1756,14 +2335,14 @@ def active_learning_round(
                     plt.savefig(os.path.join(stats_dir, 'feature_importance.png'), dpi=180)
                     plt.close()
                 except Exception as e:
-                    print(f"Feature importance plot failed: {e}")
+                    console.print(f"[yellow]Feature importance plot failed:[/yellow] {e}")
                 # Family contributions chart
                 try:
                     plot_feature_family_importance(importances, names, os.path.join(stats_dir, 'feature_importance_families.png'))
                 except Exception:
                     pass
     except Exception as e:
-        print(f"Permutation importance skipped: {e}")
+        console.print(f"[yellow]Permutation importance skipped:[/yellow] {e}")
 
     # Update persistent informative lists via the standalone script (optional).
     pred_csv_arg = os.path.join(rnd_dir, "predictions.csv")
@@ -1778,7 +2357,10 @@ def active_learning_round(
         print("Persistent lists disabled in config; skipping refresh of Highscore/ProbableAgri.")
 
     if return_metrics or not request_labels:
-        print(f"Round {round_num} complete (no candidate labeling).")
+        runtime_data["total_seconds"] = time.time() - round_start
+        runtime_data.setdefault("candidate_seconds", 0.0)
+        _write_runtime_artifacts(round_num, runtime_data, stats_root_base)
+        log(f"Round {round_num} complete (no candidate labeling).", style="green")
         if return_predictions:
             return {"metrics": metrics, "pred_csv": os.path.join(rnd_dir, "predictions.csv")}
         # Safe to delete predictions.csv if not preserving and not returning its path
@@ -1790,6 +2372,7 @@ def active_learning_round(
         return metrics
 
     if preds is not None:
+        cand_start = time.time()
         tmp = candidate_selection_from_predictions(
             preds,
             rnd_dir,
@@ -1798,7 +2381,9 @@ def active_learning_round(
             X_train=X,
             y_train=y,
         )
+        runtime_data["candidate_seconds"] = time.time() - cand_start
     else:
+        cand_start = time.time()
         tmp = candidate_selection_from_csv(
             os.path.join(rnd_dir, "predictions.csv"),
             rnd_dir,
@@ -1807,13 +2392,16 @@ def active_learning_round(
             X_train=X,
             y_train=y,
         )
+        runtime_data["candidate_seconds"] = time.time() - cand_start
     # After candidate selection, remove temporary predictions.csv if it was only used internally
     try:
         if not save_preds and pred_csv_path and os.path.exists(pred_csv_path):
             os.remove(pred_csv_path)
     except Exception:
         pass
-    print(f"Round {round_num} complete; labels at {tmp}")
+    log(f"Round {round_num} complete; labels saved to {tmp}", style="green")
+    runtime_data["total_seconds"] = time.time() - round_start
+    _write_runtime_artifacts(round_num, runtime_data, stats_root_base)
     return tmp
 
 
@@ -3778,11 +4366,12 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
     pool_size = cfg.NUM_CANDIDATES_PER_ROUND * 10
     target_neg = int(cfg.NUM_CANDIDATES_PER_ROUND * max(0.0, float(getattr(cfg, 'CANDIDATE_NEGATIVE_QUOTA', 0))))
     pool_neg = max(target_neg * 10, target_neg) if target_neg > 0 else 0
+    cand_prob_lower = _effective_candidate_prob_lower()
     heap = []      # uncertainty pool: min-heap by negative margin (closer to 0.5)
     heap_neg = []  # negative-like pool: min-heap by prob (closer to MIN_AGRI_PROB from below)
     # dynamic negative-like prob range
     def _neg_prob_range():
-        delta = float(getattr(cfg, 'NEG_LIKE_PROB_DELTA', 0.05))
+        delta = _effective_negative_delta()
         lo = max(0.0, cfg.MIN_AGRI_PROB - delta)
         hi = cfg.MIN_AGRI_PROB
         # also respect configured fallback range if provided and delta absent
@@ -3843,7 +4432,7 @@ def candidate_selection_from_csv(pred_csv, round_dir, round_num, train_rows=None
             ND = _np.asarray(buf_nd, dtype=_np.float32) if buf_nd else _np.zeros_like(P)
 
             # Uncertainty pool: consider only p >= CANDIDATE_PROB_LOWER
-            mask_unc = (P >= float(cfg.CANDIDATE_PROB_LOWER))
+            mask_unc = (P >= float(cand_prob_lower))
             if mask_unc.any():
                 keys = -_np.abs(P[mask_unc] - 0.5)
                 # Keep top-K from this chunk only (K = pool_size)
@@ -3964,10 +4553,11 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
     skipped = load_skipped_set()
     if skipped:
         preds = [p for p in preds if f"{p[0]}:{int(p[1])}:{int(p[2])}" not in skipped]
+    cand_prob_lower = _effective_candidate_prob_lower()
 
     # derive dynamic negative-like ranges
     def _neg_prob_range():
-        delta = float(getattr(cfg, 'NEG_LIKE_PROB_DELTA', 0.05))
+        delta = _effective_negative_delta()
         lo = max(0.0, cfg.MIN_AGRI_PROB - delta)
         hi = cfg.MIN_AGRI_PROB
         return (lo, hi)
@@ -3981,7 +4571,7 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
             return (ndvi_abs[0] <= nd <= ndvi_abs[1])
         return True
 
-    def select_candidates_entropy(predictions):
+    def select_candidates_entropy(predictions, cand_lower=cand_prob_lower):
         import numpy as np
         from sklearn.cluster import DBSCAN
         # vectors
@@ -3991,7 +4581,7 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
         lons = np.array([p[4] for p in predictions])
         entropy = -probs*np.log(probs + 1e-9) - (1 - probs)*np.log(1 - probs + 1e-9)
         # candidate band
-        mask_band = probs >= cfg.CANDIDATE_PROB_LOWER
+        mask_band = probs >= cand_lower
         idx_all = np.where(mask_band)[0]
         if idx_all.size == 0:
             return []
@@ -4058,7 +4648,7 @@ def candidate_selection_from_predictions(preds, round_dir, round_num, train_rows
     cands = neg_picks + sel
     # If initial selection shorter than target, backfill pool by uncertainty
     if len(cands) < cfg.NUM_CANDIDATES_PER_ROUND:
-        unc_all = [p for p in preds if p[5] >= cfg.CANDIDATE_PROB_LOWER]
+        unc_all = [p for p in preds if p[5] >= cand_prob_lower]
         unc_all.sort(key=lambda r: abs(r[5] - 0.5))  # smallest margin (most uncertain) first
         # append until we have at least target candidates
         seen = set((e[0], e[1], e[2]) for e in cands)

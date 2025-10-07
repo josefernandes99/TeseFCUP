@@ -6,6 +6,7 @@
 - When describing formulas, give the plain-English meaning first, then the formula.
 - Use short steps and bullets for procedures; keep each step action-oriented.
 - Call out assumptions and defaults explicitly so behavior is predictable.
+- When inserting code or command snippets into the thesis, you must use the `lstlisting` environment and ensure the language you request is supported by `listings`. For JSON or shell commands use `language=Python` or a generic fallback (e.g., `language=`, `basicstyle=\ttfamily`). Avoid writing literal underscores or other special characters in normal text; place paths inside `\path{...}`. Always open and close the listing explicitly and keep the snippet free of stray `$`, `#`, or braces that could leak out of the environment.
 
 This applies to all written answers and code review comments produced for this project.
 

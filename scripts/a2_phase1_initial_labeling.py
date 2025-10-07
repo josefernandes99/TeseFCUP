@@ -1,7 +1,7 @@
+3
 # scripts/a2_phase1_initial_labeling.py
 
 import csv
-import glob
 import math
 import os
 import random
@@ -16,6 +16,7 @@ from config import (
     TEMP_LABELS_FILE, ROI_COORDS, NOTE_OPTIONS,
     HIGHSCORE_FILE, PROBABLE_AGRI_FILE,
     HIGHSCORE_LIST_ENABLED, PROBABLE_AGRI_LIST_ENABLED,
+    TESTING_LABELS_FILE, TESTING_LABELS_KML,
 )
 from al_shared import snap_to_pixel_center, load_skipped_set, record_skipped_pixel
 import config as cfg
@@ -28,21 +29,22 @@ def ensure_labels_file():
         with open(LABELS_FILE, "w", newline="") as f:
             csv.writer(f).writerow(["id", "lat", "lon", "tile", "label", "notes"])
         print("Created new master labels CSV.")
-    export_labels_kml()
+    export_training_and_testing_kmls()
 
 
 # Evaluation CSV/KML removed in favor of stratified split over labels + temp_labels
 
-def load_labels(path=LABELS_FILE):
+def load_labels(path=LABELS_FILE, *, filtered: bool = True):
     if not os.path.exists(path):
         return []
-    with open(path) as f:
-        return list(csv.DictReader(f))
+    with open(path, newline='') as f:
+        rows = list(csv.DictReader(f))
+    return cfg.filter_label_rows(rows) if filtered else rows
 
 
-def export_labels_kml(path=LABELS_FILE, out_path=LABELS_KML):
+def export_labels_kml(path=LABELS_FILE, out_path=LABELS_KML, *, filtered: bool = True):
     """Export all labels to a KML with point markers for Google Earth."""
-    labels = load_labels(path)
+    labels = load_labels(path, filtered=filtered)
     doc = minidom.Document()
     kml = doc.createElement("kml")
     kml.setAttribute("xmlns", "http://www.opengis.net/kml/2.2")
@@ -96,6 +98,15 @@ def export_labels_kml(path=LABELS_FILE, out_path=LABELS_KML):
     with open(out_path, "w") as f:
         f.write(doc.toprettyxml(indent="  "))
     print(f"Exported {len(labels)} labels to KML => {out_path}")
+
+
+def export_training_and_testing_kmls():
+    """Generate KML overlays for both training and testing label splits."""
+    export_labels_kml(LABELS_FILE, LABELS_KML, filtered=False)
+    testing_csv = TESTING_LABELS_FILE
+    testing_kml = TESTING_LABELS_KML
+    if testing_csv and testing_kml and os.path.exists(testing_csv):
+        export_labels_kml(testing_csv, testing_kml, filtered=False)
 
 
 # export_evaluate_kml removed
@@ -211,7 +222,7 @@ def get_tile_for_coordinate(_lat, _lon):
     previous random selection which could associate labels with the wrong
     tile once multiple images are present.
     """
-    files = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    files = cfg.list_raw_tiles()
     for fp in files:
         try:
             with rasterio.open(fp) as src:
@@ -227,7 +238,7 @@ def get_tile_for_coordinate(_lat, _lon):
     return None
 
 def get_patch_dimensions():
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    tifs = cfg.list_raw_tiles()
     if not tifs:
         return 0.001, 0.001
     with rasterio.open(tifs[0]) as src:
@@ -242,7 +253,7 @@ def compute_roi_bbox():
     if ROI_COORDS:
         return ROI_COORDS
 
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    tifs = cfg.list_raw_tiles()
     if not tifs:
         return [[-180, -90], [-180, 90], [180, 90], [180, -90], [-180, -90]]
 
@@ -294,7 +305,7 @@ def generate_kml_for_patch(center_lat, center_lon, patch_width, patch_height, ou
     ]
 
     # Obtain CRS from any available raw tile
-    tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    tifs = cfg.list_raw_tiles()
     crs = None
     if tifs:
         try:
@@ -415,7 +426,7 @@ def generate_grids_for_all_tiles():
     """Ensure a grid KML exists for every raw tile."""
     patch_w, patch_h = get_patch_dimensions()
     # Only consider original raw tiles; ignore any generated overlays or final-sweep artifacts
-    all_tifs = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    all_tifs = cfg.list_raw_tiles()
     tifs = [tp for tp in all_tifs if ("_overlay" not in os.path.basename(tp) and "_th" not in os.path.basename(tp))]
     if not tifs:
         print(f"No raw tiles in {RAW_DATA_DIR}; skipping grid creation.")
@@ -543,7 +554,7 @@ def manual_labeling(num_labels):
         if to_remove:
             _batch_remove_pixels_from_lists(to_remove)
         _snap_labels_only()
-        export_labels_kml()
+        export_training_and_testing_kmls()
     return added
 
 
@@ -638,7 +649,7 @@ def global_sampling_labeling(num_patches):
         if to_remove:
             _batch_remove_pixels_from_lists(to_remove)
         _snap_labels_only()
-        export_labels_kml()
+        export_training_and_testing_kmls()
     return added
 
 
@@ -922,8 +933,11 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
     uniq = []
     seen = set()
     skipped = load_skipped_set()
+    current_island = cfg.get_selected_island()
     for r in rows:
         t = r.get('tile'); rr = r.get('row'); cc = r.get('col')
+        if current_island and t and not cfg.tile_matches_island(t, current_island):
+            continue
         try:
             key = f"{t}:{int(rr)}:{int(cc)}"
         except Exception:
@@ -1012,6 +1026,8 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
         dropped = 0
         for r in uniq:
             t = r.get('tile')
+            if current_island and t and not cfg.tile_matches_island(t, current_island):
+                continue
             try:
                 la = float(r.get('lat')); lo = float(r.get('lon'))
             except Exception:
@@ -1107,7 +1123,7 @@ def assisted_labeling_from_list(csv_path: str, max_count: int, list_name: str = 
         if to_remove:
             _batch_remove_pixels_from_lists(to_remove)
         _snap_labels_only()
-        export_labels_kml()
+        export_training_and_testing_kmls()
     return added
 
 
@@ -1133,11 +1149,12 @@ def assisted_labeling_hard_negatives(max_count: int) -> int:
         lo = max(0.0, float(cfg.MIN_AGRI_PROB) - float(getattr(cfg, 'NEG_LIKE_PROB_DELTA', 0.05)))
         hi = float(cfg.MIN_AGRI_PROB)
     except Exception:
-        lo, hi = max(0.0, MIN_AGRI_PROB - 0.05), MIN_AGRI_PROB
+        lo, hi = max(0.0, cfg.MIN_AGRI_PROB - 0.05), cfg.MIN_AGRI_PROB
     ndvi_abs = getattr(cfg, 'NEG_LIKE_NDVI_RANGE', (None, None))
     use_ndvi_abs = isinstance(ndvi_abs, (list, tuple)) and ndvi_abs[0] is not None and ndvi_abs[1] is not None
 
     # Quick on-screen summary: estimate how many HN candidates meet filters
+    current_island = cfg.get_selected_island()
     try:
         total_candidates = 0
         cap = 1_000_000  # safety cap for huge files
@@ -1145,6 +1162,9 @@ def assisted_labeling_hard_negatives(max_count: int) -> int:
         with open(HIGHSCORE_FILE, newline='') as f:
             rd = _csv.DictReader(f)
             for r in rd:
+                t = r.get('tile')
+                if current_island and t and not cfg.tile_matches_island(t, current_island):
+                    continue
                 try:
                     p = float(r.get('prob'))
                 except Exception:
@@ -1178,6 +1198,8 @@ def assisted_labeling_hard_negatives(max_count: int) -> int:
         rd = _csv.DictReader(f)
         for r in rd:
             t = r.get('tile'); rr = r.get('row'); cc = r.get('col')
+            if current_island and t and not cfg.tile_matches_island(t, current_island):
+                continue
             try:
                 p = float(r.get('prob'))
             except Exception:
@@ -1293,6 +1315,8 @@ def assisted_labeling_hard_negatives(max_count: int) -> int:
 
     for r in uniq:
         tile = r.get('tile')
+        if current_island and tile and not cfg.tile_matches_island(tile, current_island):
+            continue
         try:
             la = float(r.get('lat')); lo = float(r.get('lon'))
             row = int(r.get('row')); col = int(r.get('col'))
@@ -1364,5 +1388,5 @@ def assisted_labeling_hard_negatives(max_count: int) -> int:
         if to_remove:
             _batch_remove_pixels_from_lists(to_remove)
         _snap_labels_only()
-        export_labels_kml()
+        export_training_and_testing_kmls()
     return added

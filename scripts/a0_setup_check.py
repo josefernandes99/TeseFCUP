@@ -4,6 +4,7 @@ import os
 import glob
 import shutil
 import certifi
+import config as cfg
 from config import (
     ROUNDS_DIR,
     DATA_DIR,
@@ -54,7 +55,7 @@ def cleanup_previous_runs():
             print(f"Failed to delete {final_summary}: {e}")
 
     # Remove overlay tiles produced by previous postprocessing
-    overlays = glob.glob(os.path.join(RAW_DATA_DIR, "*_overlay.tif"))
+    overlays = cfg.filter_paths_by_island(glob.glob(os.path.join(RAW_DATA_DIR, "*_overlay.tif")))
     for o in overlays:
         try:
             os.remove(o)

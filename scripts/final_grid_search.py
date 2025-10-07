@@ -61,41 +61,9 @@ def _rf_combos() -> List[Tuple[str, Dict]]:
     return out
 
 
-def _xgb_combos() -> List[Tuple[str, Dict]]:
-    grid = [
-        (600, 6, 0.05),
-        (800, 6, 0.05),
-        (600, 6, 0.075),
-        (800, 6, 0.075),
-        (700, 5, 0.05),
-        (900, 5, 0.05),
-    ]
-    out = []
-    for ne, md, lr in grid:
-        name = f"xgb_ne-{ne}_md-{md}_lr-{lr}"
-        out.append((name, {"XGB_PARAMS": {
-            "n_estimators": ne,
-            "max_depth": md,
-            "learning_rate": lr,
-            "subsample": cfg.XGB_PARAMS.get("subsample", 0.9),
-            "colsample_bytree": cfg.XGB_PARAMS.get("colsample_bytree", 0.8),
-            "reg_lambda": cfg.XGB_PARAMS.get("reg_lambda", 1.0),
-        }}))
-    return out
-
-
-def _resnet_combos() -> List[Tuple[str, Dict]]:
-    grid = [
-        (15, 1e-3),
-        (20, 5e-4),
-        (12, 7.5e-4),
-        (18, 7.5e-4),
-    ]
-    out = []
-    for ep, lr in grid:
-        name = f"resnet_ep-{ep}_lr-{lr}"
-        out.append((name, {"RESNET_EPOCHS": ep, "RESNET_LR": lr}))
-    return out
+def _ensemble_combos() -> List[Tuple[str, Dict]]:
+    """Single stacking configuration that relies on config-defined base params."""
+    return [("stacking", {})]
 
 
 def _eval_combo(model_choice: str, params: Dict, X, Y) -> Tuple[float, Dict]:
@@ -103,16 +71,10 @@ def _eval_combo(model_choice: str, params: Dict, X, Y) -> Tuple[float, Dict]:
     backup = {
         "SVM_PARAMS": cfg.SVM_PARAMS.copy(),
         "RF_PARAMS": cfg.RF_PARAMS.copy(),
-        "XGB_PARAMS": cfg.XGB_PARAMS.copy(),
-        "RESNET_EPOCHS": cfg.RESNET_EPOCHS,
-        "RESNET_LR": cfg.RESNET_LR,
     }
     try:
         if "SVM_PARAMS" in params: cfg.SVM_PARAMS.update(params["SVM_PARAMS"])  # keep calibration isotonic
-        if "RF_PARAMS"  in params: cfg.RF_PARAMS.update(params["RF_PARAMS"]) 
-        if "XGB_PARAMS" in params: cfg.XGB_PARAMS.update(params["XGB_PARAMS"]) 
-        if "RESNET_EPOCHS" in params: cfg.RESNET_EPOCHS = params["RESNET_EPOCHS"]
-        if "RESNET_LR" in params: cfg.RESNET_LR = params["RESNET_LR"]
+        if "RF_PARAMS"  in params: cfg.RF_PARAMS.update(params["RF_PARAMS"])
         # One validation split, then compute best-threshold weighted score
         seed_plot = cfg.SPLIT_RANDOM_SEED if cfg.SPLIT_SEED_MODE == "fixed" else None
         tr, va, _ = stratified_train_val_test_indices(Y, cfg.TRAIN_FRACTION, cfg.VAL_FRACTION, cfg.TEST_FRACTION, seed_plot)
@@ -126,16 +88,16 @@ def _eval_combo(model_choice: str, params: Dict, X, Y) -> Tuple[float, Dict]:
     finally:
         cfg.SVM_PARAMS = backup["SVM_PARAMS"]
         cfg.RF_PARAMS = backup["RF_PARAMS"]
-        cfg.XGB_PARAMS = backup["XGB_PARAMS"]
-        cfg.RESNET_EPOCHS = backup["RESNET_EPOCHS"]
-        cfg.RESNET_LR = backup["RESNET_LR"]
 
 
 def run_final_grid_search(model_choice: str | None = None):
+    if not getattr(cfg, 'FINAL_ROUND_ENABLED', False):
+        print('Final round disabled in config; skipping final grid search.')
+        return
     if not model_choice:
-        print("Final grid search: choose model => 1=ResNet 2=SVM 3=RandomForest 4=XGBoost")
+        print("Final grid search: choose model => 1=SVM 2=RandomForest 3=Ensemble")
         ch = input("=> ").strip()
-        model_choice = {"1": "ResNet", "2": "SVM", "3": "RandomForest", "4": "XGBoost"}.get(ch, "RandomForest")
+        model_choice = {"1": "SVM", "2": "RandomForest", "3": "Ensemble"}.get(ch, "RandomForest")
     X, Y = _load_xy()
     if X is None:
         print("No features found; aborting.")
@@ -144,10 +106,8 @@ def run_final_grid_search(model_choice: str | None = None):
         combos = _svm_combos()
     elif model_choice == "RandomForest":
         combos = _rf_combos()
-    elif model_choice == "XGBoost":
-        combos = _xgb_combos()
     else:
-        combos = _resnet_combos()
+        combos = _ensemble_combos()
 
     print(f"Evaluating {len(combos)} combos for {model_choice} (train/val only)...")
     scores: List[Tuple[str, float, Dict]] = []
@@ -167,18 +127,18 @@ def run_final_grid_search(model_choice: str | None = None):
     backup = {
         "SVM_PARAMS": cfg.SVM_PARAMS.copy(),
         "RF_PARAMS": cfg.RF_PARAMS.copy(),
-        "XGB_PARAMS": cfg.XGB_PARAMS.copy(),
-        "RESNET_EPOCHS": cfg.RESNET_EPOCHS,
-        "RESNET_LR": cfg.RESNET_LR,
     }
     try:
-        if model_choice == "SVM": cfg.SVM_PARAMS.update([p for _, p in _svm_combos() if _[0]==best_name][0]["SVM_PARAMS"])  # type: ignore
-        if model_choice == "RandomForest": cfg.RF_PARAMS.update([p for _, p in _rf_combos() if _[0]==best_name][0]["RF_PARAMS"])  # type: ignore
-        if model_choice == "XGBoost": cfg.XGB_PARAMS.update([p for _, p in _xgb_combos() if _[0]==best_name][0]["XGB_PARAMS"])  # type: ignore
-        if model_choice == "ResNet":
-            for nm, p in _resnet_combos():
+        if model_choice == "SVM":
+            for nm, param in _svm_combos():
                 if nm == best_name:
-                    cfg.RESNET_EPOCHS = p["RESNET_EPOCHS"]; cfg.RESNET_LR = p["RESNET_LR"]; break
+                    cfg.SVM_PARAMS.update(param["SVM_PARAMS"])
+                    break
+        if model_choice == "RandomForest":
+            for nm, param in _rf_combos():
+                if nm == best_name:
+                    cfg.RF_PARAMS.update(param["RF_PARAMS"])
+                    break
         # Run without requesting labels and keep predictions ephemeral
         active_learning_round(round_num=0,
                               labels_file=cfg.TEMP_LABELS_FILE if os.path.exists(cfg.TEMP_LABELS_FILE) else cfg.LABELS_FILE,
@@ -193,15 +153,12 @@ def run_final_grid_search(model_choice: str | None = None):
     finally:
         cfg.SVM_PARAMS = backup["SVM_PARAMS"]
         cfg.RF_PARAMS = backup["RF_PARAMS"]
-        cfg.XGB_PARAMS = backup["XGB_PARAMS"]
-        cfg.RESNET_EPOCHS = backup["RESNET_EPOCHS"]
-        cfg.RESNET_LR = backup["RESNET_LR"]
 
 
 def main():
     import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", choices=["ResNet","SVM","RandomForest","XGBoost"], default=None)
+    ap.add_argument("--model", choices=["SVM","RandomForest","Ensemble"], default=None)
     args = ap.parse_args()
     run_final_grid_search(args.model)
 

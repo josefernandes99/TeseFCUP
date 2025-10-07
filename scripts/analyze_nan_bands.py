@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import os
 import json
-import glob
 from typing import Tuple
 
 import numpy as np
@@ -12,6 +11,7 @@ from shapely.ops import transform as shp_transform
 from pyproj import Transformer
 
 from config import RAW_DATA_DIR, DATA_DIR, BASE_DIR
+import config as cfg
 from progress_utils import new_progress
 
 
@@ -50,7 +50,7 @@ def _suggest_for_nans(band_name: str, valid_min: float, valid_max: float, zeros:
 
 
 def analyze_tiles(pattern=None, limit=None):
-    tiles = sorted(glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")))
+    tiles = cfg.list_raw_tiles()
     if pattern:
         tiles = [t for t in tiles if pattern in os.path.basename(t)]
     if limit is not None:

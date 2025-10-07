@@ -15,12 +15,12 @@ An older, experimental segmentation workflow lives under `scripts/backup (old)` 
 - Earth Engine export of seasonal Sentinel‑2 stacks (3 seasonal windows by default)
 - Per‑pixel feature engineering (bands, indices, light textures, terrain)
 - Iterative active learning for label efficiency (uncertainty + spatial diversity)
-- Compact, calibrated classifiers: SVM (RBF), RandomForest, XGBoost, tabular ResNet
+- Compact, calibrated classifiers: SVM (RBF) and RandomForest
 - Clean, reproducible post‑processing: explicit decision threshold and sieve size
 - Two stats sets per round: normal‑threshold and a best‑threshold “advisory”
 - Persistent informative pixel lists: Highscore (uncertain) and ProbableAgri (likely crops)
 - Final compact grid search round (8–12 combos for the chosen model only)
-- GPU optional (PyTorch + XGBoost), with a one‑shot GPU checker script
+- GPU optional (Torch diagnostics only), with a one-shot GPU checker script
 - Memory watcher to reduce RAM spikes on long runs
 
 ## Repository Layout
@@ -50,7 +50,7 @@ PythonProject/
 │   ├── final_grid_search.py    # Final compact grid search round
 │   ├── generatePersistents.py  # Rebuild persistent lists from saved rounds
 │   ├── refresh_lists.py        # Global refresh using predictions.csv
-│   ├── check_gpu_acceleration.py # GPU diagnostics (Torch/XGBoost)
+│   ├── check_gpu_acceleration.py # GPU diagnostics (Torch)
 │   ├── config.py               # Central configuration
 │   └── backup (old)/           # Archived experimental code
 ├── writtenThesis/              # LaTeX thesis content (template locked)
@@ -88,8 +88,6 @@ pip uninstall -y torch torchvision torchaudio
 pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.5.0 torchvision torchaudio
 ```
 
-For XGBoost GPU, WSL2 + Linux wheels typically provide best support.
-
 ## Quick Start
 
 Run the end‑to‑end Phase‑1 pipeline:
@@ -118,7 +116,7 @@ Plain‑English meanings first; file has more details.
 - Thresholds: `MIN_AGRI_PROB` is the decision threshold. A pixel with predicted prob ≥ this is agriculture; otherwise not.
 - Sieve: `SIEVE_MIN_SIZE` removes connected components smaller than this many pixels (reduces speckle).
 - Best‑threshold outputs: `BEST_THRESHOLD_OUTPUTS_ENABLED=True` writes an additional stats set and KML using a weighted score to pick the best t (precision‑heavy weighting by default).
-- Models: choose among `ResNet`, `SVM`, `RandomForest`, `XGBoost`. Probabilities are calibrated (isotonic) for stable maps.
+- Models: choose between `SVM` and `RandomForest`. Probabilities are calibrated (isotonic) for stable maps.
 - Active learning: `NUM_CANDIDATES_PER_ROUND`, `CANDIDATE_PROB_LOWER`, `CANDIDATE_DBSCAN_EPS_KM`, and negative‑like quotas/NDVI filters.
 - Persistent lists: `HIGHSCORE_LIST_ENABLED`, `PROBABLE_AGRI_LIST_ENABLED`, `HIGHSCORE_TOP_K`, `PROBABLE_AGRI_TOP_K` (defaults 10k), with matching KML caps.
 - Performance: `INFER_TILE_THREADS`, `INFER_MAX_PIXELS_PER_BATCH`, feature disk cache, and BLAS/OpenMP thread caps.
@@ -137,7 +135,7 @@ All paths are defined relative to the project root (`data/phase1`, `labels/phase
 - `final_grid_search.py` – evaluates ~10 combos for the chosen model only, then runs one final full inference for the winner.
 - `generatePersistents.py` – rebuilds persistent lists (Highscore/ProbableAgri) from all saved rounds; menu: 1=Highscore, 2=ProbableAgri, 3=Both.
 - `refresh_lists.py` – updates Highscore/ProbableAgri from an existing predictions.csv (streaming, memory‑safe).
-- `check_gpu_acceleration.py` – one‑shot GPU diagnostics for Torch/XGBoost.
+- `check_gpu_acceleration.py` – one-shot GPU diagnostics for Torch.
 
 ## Persistent Lists
 
@@ -159,7 +157,7 @@ Select 1, 2, or 3. Existing requested CSV/KML are deleted then rebuilt; unreques
 At the very end of the pipeline, a compact grid search runs for the model you chose (only that model):
 
 - SVM: 12 combos (C∈{1,3,5} × gamma∈{scale,auto} × class_weight∈{None,balanced})
-- RandomForest/XGBoost/ResNet: ~8–12 curated combos for speed vs. quality
+- RandomForest: ~8–12 curated combos for speed vs. quality
 - Selection metric: weighted best‑threshold score (precision‑biased), using the same validation split as round stats
 - Only the winner is run over full tiles to produce final outputs
 
@@ -179,14 +177,12 @@ python scripts/check_gpu_acceleration.py
 
 - If Torch shows CUDA=False on Windows, install the CUDA wheel in your venv:
   `pip install --index-url https://download.pytorch.org/whl/cu124 torch==2.5.0 torchvision torchaudio`
-- XGBoost GPU support is most robust in WSL2/Linux; Windows wheels may fall back to CPU. The pipeline runs fine on CPU.
-
 ## Tips & Troubleshooting
 
 - Earth Engine: run `earthengine authenticate` once per environment; if requests fail, re‑authenticate.
 - NotGeoreferencedWarning: harmless when operating on in‑memory arrays; verify saved overlays align by opening in GIS.
 - Missing predictions: ensure raw tiles exist under `data/phase1/raw/*.tif` and that models are saved under each round folder.
-- Performance: lower `INFER_TILE_THREADS` if RAM spikes; GPU helps for ResNet/XGBoost; use feature cache to reduce recompute.
+- Performance: lower `INFER_TILE_THREADS` if RAM spikes; use the feature cache to reduce recompute.
 
 ## License and Credits
 

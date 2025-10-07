@@ -1,6 +1,5 @@
 # scripts/a1_phase1_data_download.py
 
-import glob
 import math
 import os
 import time
@@ -9,6 +8,7 @@ import certifi
 import ee
 
 from config import RAW_DATA_DIR, TIMESTAMPS, CLOUDY_PIXEL_PERCENTAGE, BANDS
+import config as cfg
 from progress_utils import new_progress
 
 # SSL fix for Earth Engine
@@ -392,12 +392,20 @@ def export_full_year(island, tile_coords, tile_idx):
     # stack all → Float64; fill masked values with 0 to avoid NaNs in exports
     full = ee.Image.cat(season_imgs).unmask(0).toDouble()
 
+    if not cfg.GCS_BUCKET:
+        raise RuntimeError(
+            "EE_GCS_BUCKET environment variable not set; configure the target "
+            "Google Cloud Storage bucket before running exports."
+        )
+
     desc = f"{island['name']}_tile{tile_idx}"
-    task = ee.batch.Export.image.toDrive(
+    path_prefix = (cfg.GCS_PATH_PREFIX or "").strip("/")
+    file_prefix = f"{path_prefix}/{desc}" if path_prefix else desc
+    task = ee.batch.Export.image.toCloudStorage(
         image=full,
         description=desc,
-        folder="PythonProject_fullyear",
-        fileNamePrefix=desc,
+        bucket=cfg.GCS_BUCKET,
+        fileNamePrefix=file_prefix,
         region=tile_coords,
         scale=10,
         crs="EPSG:32627",
@@ -408,39 +416,84 @@ def export_full_year(island, tile_coords, tile_idx):
     return task
 
 # ---------------------------------------------------------------------------
-# 5) MAIN: PROCESS ONE ISLAND AT A TIME
+# 5) MAIN: SUBMIT EXPORTS FOR SELECTED ISLANDS
 # ---------------------------------------------------------------------------
 def download_data():
     # skip if raw already present
-    if glob.glob(os.path.join(RAW_DATA_DIR, "*.tif")):
-        print("Raw data present; skipping export.")
+    if cfg.list_raw_tiles():
+        print("Raw data present for the selected island; skipping export.")
         return
+
+    if not cfg.GCS_BUCKET:
+        raise RuntimeError(
+            "EE_GCS_BUCKET environment variable not set; configure the target "
+            "Google Cloud Storage bucket before running exports."
+        )
 
     ee.Initialize(project="earthenginecapeverde")
 
-    for isl in islands:
+    target = cfg.get_selected_island()
+    if target:
+        isl_list = [it for it in islands if it["name"].lower() == target.lower()]
+        if not isl_list:
+            print(f"Selected island '{target}' not found in download list.")
+            return
+    else:
+        isl_list = islands
+
+    all_task_groups = []
+    total_tiles = 0
+
+    for isl in isl_list:
         print(f"\n=== STARTING exports for island: {isl['name']} ===")
-        tasks = []
+        island_tasks = []
         for tidx, tc in enumerate(tile_bbox(isl["coords"])):
-            tasks.append(export_full_year(isl, tc, tidx))
+            island_tasks.append(export_full_year(isl, tc, tidx))
 
-        print("Monitoring export tasks for this island...")
-        with new_progress() as prog:
-            task = prog.add_task(f"Exporting tiles for {isl['name']}", total=len(tasks))
+        all_task_groups.append((isl['name'], island_tasks))
+        total_tiles += len(island_tasks)
+        print(f"Submitted {len(island_tasks)} tiles for island {isl['name']}.")
+
+    if not all_task_groups:
+        print("No export tasks were created.")
+        return
+
+    print("\nMonitoring export tasks across all islands...")
+    completed_islands = set()
+    done_states = {"COMPLETED", "FAILED"}
+
+    with new_progress() as prog:
+        overall_task = prog.add_task("Exporting tiles", total=total_tiles)
+        last_done = -1
+
+        while True:
             done = 0
-            last_done = -1
-            while True:
-                states = {t.id: t.status().get("state") for t in tasks}
-                done = sum(1 for s in states.values() if s in ("COMPLETED", "FAILED"))
-                if done != last_done:
-                    prog.update(task, completed=done)
-                    last_done = done
-                if done >= len(tasks):
-                    break
-                time.sleep(5)
+            for name, tasks in all_task_groups:
+                states = [t.status().get("state") for t in tasks]
+                done += sum(1 for s in states if s in done_states)
+                if name not in completed_islands and all(s in done_states for s in states):
+                    completed_islands.add(name)
+                    print(f"✅ Island '{name}' exports finished.")
 
-        print(f"\n✅ Island '{isl['name']}' complete.")
-        input("Please download these tiles from Google Drive and clear space. Press Enter to continue to the next island...")
+            if done != last_done:
+                prog.update(overall_task, completed=done)
+                last_done = done
+
+            if done >= total_tiles:
+                break
+
+            time.sleep(5)
+
+    gcs_prefix = (cfg.GCS_PATH_PREFIX or "").strip("/")
+    if gcs_prefix:
+        gcs_location = f"gs://{cfg.GCS_BUCKET}/{gcs_prefix}/"
+    else:
+        gcs_location = f"gs://{cfg.GCS_BUCKET}/"
+    input(
+        "All exports completed. Please transfer the tiles from Google Cloud Storage "
+        f"({gcs_location}) to local storage and clear space before rerunning. Press Enter "
+        "when ready to finish..."
+    )
 
     print("\n🎉 All islands processed. Export pipeline finished.")
 

@@ -13,6 +13,7 @@
       <excludeFolder url="file://$MODULE_DIR$/data/phase1/rawSmallWithWater" />
       <excludeFolder url="file://$MODULE_DIR$/data/phase1/rounds" />
       <excludeFolder url="file://$MODULE_DIR$/labels/phase1/grids" />
+      <excludeFolder url="file://$MODULE_DIR$/final_results" />
     </content>
     <orderEntry type="jdk" jdkName="Python 3.12 (EarthProRipper)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />

@@ -80,13 +80,9 @@ def _compute_probs_for_tile(tile_path, model):
                 return base
             kind = (getattr(model, 'kind', '') or '').lower()
             if kind == 'svm':
-                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_SVM', 200_000)))
-            if kind == 'resnet':
-                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RESNET', 200_000)))
-            if kind == 'xgboost':
-                return min(max(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_XGBOOST', 500_000))), base)
+                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_SVM', base)))
             if kind == 'randomforest':
-                return min(max(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RANDOMFOREST', 400_000))), base)
+                return min(base, int(getattr(cfg, 'INFER_BATCH_OVERRIDE_RANDOMFOREST', base)))
             return base
         bs = _effective_bs()
         try:
@@ -186,7 +182,7 @@ def postprocessing():
     if mp is None:
         return
     model = load(mp)
-    tile_files = glob.glob(os.path.join(RAW_DATA_DIR, "*.tif"))
+    tile_files = cfg.list_raw_tiles()
     if not tile_files:
         print("No tiles found in raw data directory.")
         return
